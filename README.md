@@ -101,6 +101,12 @@ cost = OrderCost(
 slip = FixedSlippage(0.02)            # 每股固定滑点 0.02 元
 # 或
 slip = PriceRelatedSlippage(0.002)    # 按比例滑点 千分之二
+
+result = run_backtest(
+    ..., 
+    order_cost=cost, 
+    slippage=slip
+)
 ```
 
 ## 数据配置
