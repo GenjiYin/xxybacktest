@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xxybacktest"
+version = "0.1.0"
+description = "A股量化回测框架"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+
+dependencies = [
+    "pandas>=1.5",
+    "numpy>=1.21",
+    "matplotlib>=3.5",
+    "empyrical-reloaded>=0.5",
+    "xxydb>=0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["xxybacktest*"]
+exclude = ["tests*", "data*", "strategy*", "reports*", "logs*"]
