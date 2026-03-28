@@ -12,6 +12,7 @@ from .events import load_events, register_daily
 from .performance import Performance
 from .trading import force_sell
 
+from itables import show
 
 def run_backtest(
     initialize,
@@ -365,5 +366,9 @@ def run_backtest(
 
     # 释放缓存内存
     Data.clear_cache()
+
+    # 绘制表格
+    show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position')
+    show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order')
 
     return context
