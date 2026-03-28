@@ -16,6 +16,7 @@ dependencies = [
     "matplotlib>=3.5",
     "empyrical-reloaded>=0.5",
     "xxydb>=0.1",
+    "itables>=1.0",
 ]
 
 [project.optional-dependencies]
