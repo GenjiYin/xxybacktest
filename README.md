@@ -10,6 +10,8 @@ pip install -e .
 
 ## 快速开始
 
+### 股票回测示例
+
 ```python
 from xxybacktest import run_backtest, order_target_percent, OrderCost, FixedSlippage
 
@@ -29,6 +31,7 @@ result = run_backtest(
     capital=1000000,
     data_path="./data",          # 你的数据目录路径
     benchmark="000001.SH",
+    asset_type="stock",          # 资产类型：stock (股票) 或 fund (场内基金)
     plot=True,                   # 在 Notebook 中展示回测曲线
 )
 
@@ -40,6 +43,37 @@ print(result.pos)
 
 # 查看绩效指标
 print(result.performance.indicators)
+```
+
+### 场内基金回测示例
+
+```python
+from xxybacktest import run_backtest, order_target_value
+
+def initialize(context):
+    context.universe = ["510300.SH"]  # 沪深300ETF
+    context.first_day = True
+
+def handle_data(context):
+    if context.first_day:
+        # 首日买入10000份ETF并持有
+        order_target_value("510300.SH", 10000, context)
+        context.first_day = False
+
+result = run_backtest(
+    initialize=initialize,
+    handle_data=None,
+    start_date="2023-01-01",
+    end_date="2023-12-31",
+    capital=100000,
+    data_path="./data",
+    asset_type="fund",           # 指定为基金回测
+    plot=True,
+)
+
+print(f"资产类型: {result.trade.asset_type}")
+print(f"卖出印花税率: {result.account.close_tax}")  # 基金默认为0（无印花税）
+print(f"最终总资产: {result.portfolio.total_value:.2f}")
 ```
 
 ## run_backtest 参数
@@ -55,8 +89,10 @@ print(result.performance.indicators)
 | `order_cost` | OrderCost | None | 费率配置 |
 | `slippage` | Slippage | None | 滑点配置（`FixedSlippage` 或 `PriceRelatedSlippage`） |
 | `benchmark` | str | `'000001.SH'` | 基准指数代码 |
-| `rule_list` | str | 全部规则 | 逗号分隔的规则链 |
+| `asset_type` | str | `'stock'` | **资产类型**：`'stock'` (A股) 或 `'fund'` (场内基金ETF/LOF) |
 | `plot` | bool | True | 是否展示回测曲线与绩效表 |
+
+**注意**：`asset_type` 参数决定回测模式，影响数据表选择、规则链和默认费率。股票模式下使用 `daily_bar` + `stock_status` 表，基金模式下使用 `daily_fund` 表。
 
 ## 返回结果
 
@@ -115,24 +151,47 @@ xxybacktest 不内置数据，用户需自行准备数据并通过 `data_path` �
 
 ### 数据目录结构
 
+**股票回测数据目录**：
+
 ```
 data/
 ├── tables_config.json          # 表结构配置文件
 ├── trading_days/
 │   └── data.parquet            # 交易日历
-├── daily_bar/
-│   ├── year=2019/data.parquet  # 日线行情（按年分区）
+├── daily_bar/                  # 股票日线行情
+│   ├── year=2019/data.parquet  # 按年分区
 │   ├── year=2020/data.parquet
 │   └── ...
-├── stock_status/
-│   ├── year=2019/data.parquet  # 股票状态（按年分区）
+├── stock_status/               # 股票状态
+│   ├── year=2019/data.parquet
 │   └── ...
-├── index_bar/
-│   ├── year=2019/data.parquet  # 指数行情（按年分区）
+├── index_bar/                  # 指数行情
+│   ├── year=2019/data.parquet
 │   └── ...
-└── dividend/
-    └── data.parquet            # 分红送股数据
+└── dividend/                   # 分红送股数据
+    └── data.parquet
 ```
+
+**场内基金回测数据目录**（新增）：
+
+```
+data/
+├── tables_config.json          # 需包含基金表配置
+├── trading_days/               # 复用股票交易日历
+│   └── data.parquet
+├── daily_fund/                 # 基金日线行情（新增）
+│   ├── year=2019/data.parquet  # 按年分区
+│   ├── year=2020/data.parquet
+│   └── ...
+├── fund_dividend/              # 基金分红数据（新增）
+│   └── data.parquet
+├── fund_split/                 # 基金拆分/合并（新增）
+│   └── data.parquet
+└── index_bar/                  # 复用指数行情
+    └── ...
+```
+
+**注意**：基金与股票数据可以并存于同一 `data` 目录，运行时通过 `asset_type` 参数自动选择对应数据表。
 
 ### 各表字段说明
 
@@ -217,6 +276,131 @@ data/
 
 数据目录下必须包含 `tables_config.json` 配置文件，定义各表的分区方式和字段 schema。xxydb 根据此文件自动建立 DuckDB 视图。格式示例见项目自带的 `data/tables_config.json`。
 
+**基金数据表配置示例**：
+
+```json
+{
+  "daily_fund": {
+    "partition_by": "year",
+    "schema": {
+      "instrument": "VARCHAR",
+      "name": "VARCHAR",
+      "date": "TIMESTAMP",
+      "open": "DOUBLE",
+      "high": "DOUBLE",
+      "low": "DOUBLE",
+      "close": "DOUBLE",
+      "pre_close": "DOUBLE",
+      "volume": "BIGINT",
+      "amount": "DOUBLE",
+      "upper_limit": "DOUBLE",
+      "lower_limit": "DOUBLE",
+      "change_ratio": "DOUBLE",
+      "turn": "DOUBLE",
+      "adjust_factor": "DOUBLE",
+      "deal_number": "INTEGER",
+      "iopv": "DOUBLE"
+    }
+  },
+  "fund_dividend": {
+    "partition_by": null,
+    "schema": {
+      "instrument": "VARCHAR",
+      "name": "VARCHAR",
+      "date": "TIMESTAMP",
+      "register_date": "TIMESTAMP",
+      "cash_dividend": "DOUBLE",
+      "dividend_distribution_date": "TIMESTAMP",
+      "fund_type": "VARCHAR"
+    }
+  },
+  "fund_split": {
+    "partition_by": null,
+    "schema": {
+      "instrument": "VARCHAR",
+      "name": "VARCHAR",
+      "date": "TIMESTAMP",
+      "split_type": "DOUBLE",
+      "split_conversion": "DOUBLE",
+      "fund_type": "VARCHAR"
+    }
+  }
+}
+```
+
+## 股票 vs 场内基金差异说明
+
+xxybacktest 支持 A股股票 和 场内基金（ETF/LOF）两种资产类型，通过 `asset_type` 参数切换。主要差异如下：
+
+| 对比维度 | A股股票 (`asset_type="stock"`) | 场内基金 (`asset_type="fund"`) | 说明 |
+|---------|------------------------------|------------------------------|------|
+| **行情表** | `daily_bar` + `stock_status` | `daily_fund` | 基金无需股票状态表 |
+| **停牌判断** | `stock_status.suspended` | `volume=0` 推断 | 基金从成交量判断 |
+| **ST状态** | 有ST/*ST概念 | 无ST概念 | 基金不受ST影响 |
+| **分红** | 现金+送股+转增 | 仅现金分红 | 基金只有现金分红 |
+| **拆分/折算** | 不适用 | 支持拆分/合并 | 基金特有机制 |
+| **印花税** | 卖出 0.1% | **无** | 基金交易免征印花税 |
+| **规则链** | 含 `rule_delist` | **不含** `rule_delist` | 基金无退市概念 |
+| **最小单位** | 100股 | 100份 | 与股票一致 |
+| **交易制度** | T+1 | T+1 | 相同 |
+| **涨跌停** | 10%/20% | 10% | ETF有涨跌停限制 |
+
+### 费率差异示例
+
+股票默认费率（卖出印花税千分之一）：
+
+```python
+# 股票默认费率
+context.account.close_tax = 0.001       # 卖出印花税
+context.account.open_commission = 0.0003  # 买入佣金万三
+context.account.close_commission = 0.0003 # 卖出佣金万三
+```
+
+基金默认费率（**无印花税**，仅佣金）：
+
+```python
+# 基金默认费率（asset_type="fund" 时自动设置）
+context.account.close_tax = 0             # 无印花税
+context.account.open_commission = 0.0003  # 买入佣金万三
+context.account.close_commission = 0.0003 # 卖出佣金万三
+```
+
+### 基金拆分/合并处理
+
+基金支持拆分（如 1:4）和合并（如 4:1），框架自动处理：
+
+- **拆分日**：价格不变，次日开盘价格调整为拆分前价格的 1/4，持仓份额变为 4 倍
+- **合并日**：价格不变，次日开盘价格调整为合并前价格的 4 倍，持仓份额变为 1/4
+- **总值不变**：拆分/合并前后持仓总市值保持不变，净值曲线平滑
+
+示例：持有纳指 ETF (159941.SZ) 经历 1:4 拆分
+
+```python
+def initialize(context):
+    context.universe = ["159941.SZ"]
+    context.first_day = True
+
+def handle_data(context):
+    if context.first_day:
+        # 在拆分前买入
+        order_target_value("159941.SZ", 10000, context)
+        context.first_day = False
+
+result = run_backtest(
+    initialize=initialize,
+    handle_data=handle_data,
+    start_date="2022-06-01",   # 拆分基准日 2022-07-04
+    end_date="2022-07-10",
+    asset_type="fund",
+    plot=True,
+)
+
+# 回测结果：
+# - 2022-07-04: 持有 1000 份，收盘价 2.384 元
+# - 2022-07-05: 自动调整为 4000 份，开盘价 0.596 元（=2.384/4）
+# - 持仓总值保持不变：1000 × 2.384 ≈ 4000 × 0.596
+```
+
 ## 依赖
 
 - Python >= 3.8
@@ -225,3 +409,4 @@ data/
 - matplotlib >= 3.5
 - empyrical-reloaded >= 0.5
 - xxydb >= 0.1
+- itables>=1.0

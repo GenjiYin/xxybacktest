@@ -12,7 +12,6 @@ from .events import load_events, register_daily
 from .performance import Performance
 from .trading import force_sell
 
-from itables import show
 
 def run_backtest(
     initialize,
@@ -24,7 +23,7 @@ def run_backtest(
     order_cost=None,
     slippage=None,
     benchmark=None,
-    rule_list="rule_stop,rule_limit,rule_t1,rule_volume_num,rule_cost,rule_100,rule_volume_ratio,rule_delist",
+    asset_type="stock",
     plot=True,
 ):
     """运行一次完整的回测。
@@ -41,18 +40,32 @@ def run_backtest(
         order_cost:  OrderCost 实例（可选，默认用 context 内置值）
         slippage:    Slippage 实例（可选，默认用 context 内置值）
         benchmark:   str — 基准指数代码
-        rule_list:   str — 规则链（逗号分隔）
+        asset_type:  str — 资产类型，'stock' 或 'fund'（默认 'stock'）
         plot:        bool — 是否在 Notebook 中展示回测曲线和绩效指标（默认 False）
 
     返回:
         context — 回测结束后的完整上下文，包含持仓、资金、日志、绩效等
     """
     # ------------------------------------------------------------------
-    # 1. 初始化数据库连接 + O1/O2 全区间预加载
+    # 0. 根据 asset_type 确定规则链
     # ------------------------------------------------------------------
-    Data.init_db(data_path)
-    Data.preload_daily(start_date, end_date)
-    Data.preload_dividend(start_date, end_date)
+    if asset_type == "stock":
+        rule_list = "rule_stop,rule_limit,rule_t1,rule_volume_num,rule_cost,rule_100,rule_volume_ratio,rule_delist"
+    elif asset_type == "fund":
+        rule_list = "rule_stop,rule_limit,rule_t1,rule_volume_num,rule_cost,rule_100,rule_volume_ratio"
+    else:
+        raise ValueError(f"unsupported asset_type: {asset_type!r}")
+
+    # ------------------------------------------------------------------
+    # 1. 初始化数据库连接 + O1/O2 全区间预加载（按 asset_type 分流）
+    # ------------------------------------------------------------------
+    Data.init_db(data_path, asset_type=asset_type)
+    if asset_type == "fund":
+        Data.preload_fund_daily(start_date, end_date)
+        Data.preload_fund_dividend(start_date, end_date)
+    else:
+        Data.preload_daily(start_date, end_date)
+        Data.preload_dividend(start_date, end_date)
 
     # ------------------------------------------------------------------
     # 2. 创建 context
@@ -72,6 +85,7 @@ def run_backtest(
     context.trade.end_time = end_date
     context.trade.benchmark = benchmark
     context.trade.rule_list = rule_list
+    context.trade.asset_type = asset_type
 
     if order_cost is not None:
         context.account.open_tax = order_cost.open_tax
@@ -79,6 +93,9 @@ def run_backtest(
         context.account.open_commission = order_cost.open_commission
         context.account.close_commission = order_cost.close_commission
         context.account.min_commission = order_cost.min_commission
+    elif asset_type == "fund":
+        # 基金默认无印花税
+        context.account.close_tax = 0
 
     if slippage is not None:
         context.trade.slip = slippage.value
@@ -92,6 +109,10 @@ def run_backtest(
 
     if not calendar:
         return context
+
+    # F-H1: 基金拆分预加载（需要 calendar 来推导 ex_date = 基准日的下一个交易日）
+    if asset_type == "fund":
+        Data.preload_fund_split(start_date, end_date, calendar)
 
     # ------------------------------------------------------------------
     # 4. 定义内置事件处理器
@@ -116,18 +137,21 @@ def run_backtest(
                     entry["cash_tax"] = pos.amount * entry["cash_tax_per_share"]
                     entry["cash_stk"] = pos.amount * entry["stk_div_per_share"]
                     entry["preloaded"] = False
-                if entry["cash_stk"] > 0:
+                if entry["cash_stk"] != 0:
                     new_amount = entry["cash_stk"]
                     pos.amount += new_amount
                     pos.enable_amount = pos.amount
-                    pos.total_cost -= new_amount * pos.last_sale_price
-                    pos.total_value = pos.amount * pos.last_sale_price
-                    pos.cost_basis = pos.total_cost / pos.amount
+                    if pos.amount > 0:
+                        pos.total_cost -= new_amount * pos.last_sale_price
+                        pos.total_value = pos.amount * pos.last_sale_price
+                        pos.cost_basis = pos.total_cost / pos.amount
                     ctx.portfolio.positions_value += new_amount * pos.last_sale_price
                     ctx.portfolio.total_value += new_amount * pos.last_sale_price
 
     def _morning_start(ctx):
         """E3: 开盘自动卖出退市股。"""
+        if ctx.trade.asset_type == "fund":
+            return  # 基金无退市股自动卖出机制
         # 先收集要处理的 code（避免遍历中修改字典）
         delist_codes = []
         for code in ctx.portfolio.positions:
@@ -245,11 +269,14 @@ def run_backtest(
     }
 
     # ------------------------------------------------------------------
-    # 4b. F3: 分红数据预加载
+    # 4b. F3: 分红数据预加载（按 asset_type 分流）
     # ------------------------------------------------------------------
     # 处理 register_date 在回测开始前、但 pay_date(ex_date) 在回测期间内的分红
     # 这些分红的登记日不在回测区间内，after_market 的阶段1不会捕获到
-    pre_div = Data.get_dividend_by_pay_date(start_date, end_date)
+    if asset_type == "fund":
+        pre_div = Data.get_fund_dividend_by_pay_date(start_date, end_date)
+    else:
+        pre_div = Data.get_dividend_by_pay_date(start_date, end_date)
     for pay_date_str, code_dict in pre_div.items():
         dt_key = "dt_" + pay_date_str
         if dt_key not in context.data.dividend:
@@ -266,6 +293,28 @@ def run_backtest(
                 "cash_stk": 0,   # 占位，需在送股日按实际持仓计算
                 "preloaded": True,
             }
+
+    # F-H1: 基金拆分 F3 预加载（基准日在回测前，ex_date 在回测区间内的拆分事件）
+    if asset_type == "fund":
+        pre_split = Data.get_fund_split_by_ex_date(start_date, end_date, calendar)
+        for ex_date_str, code_dict in pre_split.items():
+            dt_key = "dt_" + ex_date_str
+            if dt_key not in context.data.dividend:
+                context.data.dividend[dt_key] = {}
+            for code, div_info in code_dict.items():
+                if code not in context.data.dividend[dt_key]:
+                    context.data.dividend[dt_key][code] = {
+                        "cash_tax_per_share": 0.0,
+                        "stk_div_per_share": float(div_info.stk_div),
+                        "cash_tax": 0,
+                        "cash_stk": 0,
+                        "preloaded": True,
+                    }
+                else:
+                    # 已有分红记录（F3 pre_div），合并 stk_div
+                    entry = context.data.dividend[dt_key][code]
+                    existing_stk = entry.get("stk_div_per_share", 0)
+                    entry["stk_div_per_share"] = (1 + existing_stk) * (1 + float(div_info.stk_div)) - 1
 
     # ------------------------------------------------------------------
     # 5. 生成事件列表
@@ -366,9 +415,5 @@ def run_backtest(
 
     # 释放缓存内存
     Data.clear_cache()
-
-    # 绘制表格
-    show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position')
-    show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order')
 
     return context

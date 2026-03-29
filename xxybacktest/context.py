@@ -137,6 +137,7 @@ def create_context():
             "slip": 0,
             "sliptype": "pricerelated",
             "rule_list": "",
+            "asset_type": "stock",
         },
 
         "g": {},
