@@ -437,6 +437,7 @@ def run_backtest(
 
     # 释放缓存内存
     Data.clear_cache()
+    Data._db.close()
     
     show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position_table')
     show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order_table')
