@@ -13,7 +13,7 @@ pip install -e .
 ### 股票回测示例
 
 ```python
-from xxybacktest import run_backtest, order_target_percent, OrderCost, FixedSlippage
+from xxybacktest import run_backtest, OrderCost, FixedSlippage
 
 def initialize(context):
     context.universe = ["000001.SZ", "600519.SH"]
@@ -21,7 +21,7 @@ def initialize(context):
 
 def handle_data(context):
     for code in context.universe:
-        order_target_percent(code, 0.5, context)
+        context.order_target_percent(code, 0.5)
 
 result = run_backtest(
     initialize=initialize,
@@ -48,7 +48,7 @@ print(result.performance.indicators)
 ### 场内基金回测示例
 
 ```python
-from xxybacktest import run_backtest, order_target_value
+from xxybacktest import run_backtest
 
 def initialize(context):
     context.universe = ["510300.SH"]  # 沪深300ETF
@@ -57,7 +57,7 @@ def initialize(context):
 def handle_data(context):
     if context.first_day:
         # 首日买入10000份ETF并持有
-        order_target_value("510300.SH", 10000, context)
+        context.order_target_value("510300.SH", 10000)
         context.first_day = False
 
 result = run_backtest(
@@ -107,19 +107,56 @@ print(f"最终总资产: {result.portfolio.total_value:.2f}")
 
 ## 下单函数
 
-在策略函数中可使用以下下单接口（需先 import）：
+下单函数已绑定到 context 上，无需手动导入，也无需传入 context 参数：
 
 ```python
-from xxybacktest import order, order_value, order_target_value, order_target_percent, inout_cash
+def handle_data(context):
+    context.order_buy('000001.SZ', 100)
+    context.order_sell('000001.SZ', 100)
+    context.order_value('000001.SZ', 50000)
+    context.order_target_value('000001.SZ', 100000)
+    context.order_target_percent('000001.SZ', 0.1)
+    context.inout_cash(50000)
 ```
 
 | 函数 | 说明 |
 |------|------|
-| `order(code, amount, context)` | 按数量下单，正数买入，负数卖出 |
-| `order_value(code, value, context)` | 按金额下单 |
-| `order_target_value(code, value, context)` | 调仓至目标市值 |
-| `order_target_percent(code, percent, context)` | 按总资产百分比调仓 |
-| `inout_cash(amount, context)` | 出入金 |
+| `context.order_buy(code, amount)` | 买入指定数量 |
+| `context.order_sell(code, amount)` | 卖出指定数量 |
+| `context.order_value(code, value)` | 按金额下单，正数买入，负数卖出 |
+| `context.order_target_value(code, value)` | 调仓至目标市值 |
+| `context.order_target_percent(code, percent)` | 按总资产百分比调仓 |
+| `context.inout_cash(amount)` | 出入金，正数入金，负数出金 |
+
+`order(code, amount, context)` 由于与回测结果 `result.order` (DataFrame) 同名，仍需通过导入使用：
+
+```python
+from xxybacktest import order
+order('000001.SZ', 100, context)   # 正数买入，负数卖出
+```
+
+## 历史行情
+
+在策略函数中通过 `context.history` 获取历史K线数据，返回 `{instrument: np.recarray}`，支持属性访问：
+
+```python
+def handle_data(context):
+    # 获取最近 20 根K线的收盘价（fields 默认为 ['close']）
+    his = context.history(['000001.SZ', '600519.SH'], bar_count=20)
+    ma20 = his['000001.SZ'].close.mean()
+
+    # 获取多个字段
+    his = context.history(['000001.SZ'], fields=['close', 'volume', 'high'], bar_count=10)
+    his['000001.SZ'].close    # float64 数组
+    his['000001.SZ'].volume   # int64 数组
+    his['000001.SZ'].date     # 日期字符串数组（自动包含）
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `instruments` | List[str] | 必填 | 股票代码列表 |
+| `fields` | List[str] | `['close']` | K线字段：open, high, low, close, pre_close, volume, amount, vwap |
+| `bar_count` | int | 1 | 回溯K线数量（含当日） |
 
 ## 费率与滑点
 
@@ -383,7 +420,7 @@ def initialize(context):
 def handle_data(context):
     if context.first_day:
         # 在拆分前买入
-        order_target_value("159941.SZ", 10000, context)
+        context.order_target_value("159941.SZ", 10000)
         context.first_day = False
 
 result = run_backtest(

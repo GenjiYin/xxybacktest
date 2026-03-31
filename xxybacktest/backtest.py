@@ -10,7 +10,15 @@ from .context import create_context
 from .data import Data
 from .events import load_events, register_daily
 from .performance import Performance
-from .trading import force_sell
+from .trading import (
+    force_sell,
+    order_buy as _order_buy,
+    order_sell as _order_sell,
+    order_value as _order_value,
+    order_target_value as _order_target_value,
+    order_target_percent as _order_target_percent,
+    inout_cash as _inout_cash,
+)
 from itables import show
 
 
@@ -332,6 +340,19 @@ def run_backtest(
 
     # 将 run_daily 挂到 context 上，用户通过 context 调用
     context.run_daily = _run_daily
+
+    # 将 history 挂到 context 上，用户通过 context.history(...) 获取历史行情
+    def _history(instruments, fields=None, bar_count=1):
+        return Data.history(context, instruments, fields, bar_count)
+    context.history = _history
+
+    # 将下单函数绑定到 context，用户无需手动导入、无需传 context
+    context.order_buy = lambda code, amount: _order_buy(code, amount, context)
+    context.order_sell = lambda code, amount: _order_sell(code, amount, context)
+    context.order_value = lambda security, value: _order_value(security, value, context)
+    context.order_target_value = lambda security, value: _order_target_value(security, value, context)
+    context.order_target_percent = lambda security, percent: _order_target_percent(security, percent, context)
+    context.inout_cash = lambda cash_amount: _inout_cash(cash_amount, context)
 
     initialize(context)
 

@@ -9,6 +9,7 @@ import math
 from dataclasses import dataclass
 from datetime import time as dtime
 
+import numpy as np
 from xxydb import xxydb
 import pandas as pd
 
@@ -830,6 +831,83 @@ class Data:
     # ------------------------------------------------------------------
     # B5. 指数行情接口
     # ------------------------------------------------------------------
+    @staticmethod
+    def history(context, instruments, fields=None, bar_count=1):
+        """获取历史K线数据。
+
+        从当前交易日（含）向前回溯 bar_count 根K线。
+
+        参数:
+            instruments: List[str] — 股票代码列表
+            fields:      List[str] — 需要的字段，默认 ['close']
+                         可选: open, high, low, close, pre_close, volume, amount, vwap
+            bar_count:   int — 回溯的K线数量（含当日）
+
+        返回:
+            dict {instrument: np.recarray}
+            每个 recarray 包含 date 字段 + 请求的 fields，可通过属性访问：
+                his = context.history(['000001.SZ'], ['close', 'volume'], 10)
+                his['000001.SZ'].close   # → float64 数组
+                his['000001.SZ'].date    # → 日期字符串数组
+        """
+        if fields is None:
+            fields = ["close"]
+
+        if Data._daily_cache is None:
+            return {}
+
+        calendar = context.data.calendar
+        current_date = context.current_dt.strftime("%Y-%m-%d")
+
+        # 在 calendar 中定位当前日期
+        try:
+            idx = calendar.index(current_date)
+        except ValueError:
+            idx = -1
+            for i, d in enumerate(calendar):
+                if d <= current_date:
+                    idx = i
+                else:
+                    break
+            if idx == -1:
+                return {}
+
+        start_idx = max(0, idx - bar_count + 1)
+        dates = calendar[start_idx:idx + 1]
+
+        if not dates:
+            return {}
+
+        # 字段类型映射
+        float_fields = {"open", "high", "low", "close", "pre_close", "amount", "vwap",
+                        "upLimit", "downLimit"}
+        int_fields = {"volume", "stop", "st_status"}
+
+        dtype_list = [("date", "U10")]
+        for f in fields:
+            if f in float_fields:
+                dtype_list.append((f, "f8"))
+            elif f in int_fields:
+                dtype_list.append((f, "i8"))
+            else:
+                dtype_list.append((f, "f8"))
+
+        result = {}
+        for code in instruments:
+            rows = []
+            for date_str in dates:
+                day_data = Data._daily_cache.get(date_str, {})
+                info = day_data.get(code)
+                row = [date_str]
+                for f in fields:
+                    val = getattr(info, f, None) if info else None
+                    row.append(val if val is not None else (0 if f in int_fields else np.nan))
+                rows.append(tuple(row))
+            arr = np.array(rows, dtype=dtype_list)
+            result[code] = arr.view(np.recarray)
+
+        return result
+
     @staticmethod
     def get_index_daily(index_code, start_date, end_date):
         """获取时间区间内的指数行情
