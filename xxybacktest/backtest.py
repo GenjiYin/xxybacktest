@@ -211,9 +211,13 @@ def run_backtest(
             # 累计收益 = 当前价 / 持仓均价 - 1
             cum_return = pos.last_sale_price / pos.cost_basis - 1 if pos.cost_basis != 0 else 0.0
             cum_profit = pos.amount * (pos.last_sale_price - pos.cost_basis)
+            _day_cache = Data._daily_cache.get(date_str, {}) if Data._daily_cache else {}
+            _info = _day_cache.get(code)
+            name = _info.name if _info is not None else ""
             ctx.performance.position_snapshots.append({
                 "date": date_str,
                 "instrument": code,
+                "name": name,
                 "volume": pos.amount,
                 "ratio": ratio,
                 "cum_profit": cum_profit,
@@ -397,9 +401,12 @@ def run_backtest(
     # order DataFrame
     order_records = []
     for o in context.logs.order_list:
+        # 从 order.info 取名称（info 可能为 None，如停牌被拒单）
+        name = o.info.name if o.info is not None else ""
         order_records.append({
             "date": o.date.strftime("%Y-%m-%d") if o.date else "",
             "instrument": o.code,
+            "name": name,
             "volume": o.amount,
             "side": "buy" if o.is_buy else "sell",
             "status": "filled" if o.status == 1 else "rejected",
@@ -409,7 +416,7 @@ def run_backtest(
         context.order = pd.DataFrame(order_records)
     else:
         context.order = pd.DataFrame(
-            columns=["date", "instrument", "volume", "side", "status", "cost"]
+            columns=["date", "instrument", "name", "volume", "side", "status", "cost"]
         )
 
     # pos DataFrame
@@ -422,6 +429,7 @@ def run_backtest(
             pos_rows.append({
                 "date": s["date"],
                 "instrument": s["instrument"],
+                "name": s.get("name", ""),
                 "volume": s["volume"],
                 "ratio": round(s["ratio"], 4),
                 "return": ret_str,
@@ -431,7 +439,7 @@ def run_backtest(
         context.pos = pd.DataFrame(pos_rows)
     else:
         context.pos = pd.DataFrame(
-            columns=["date", "instrument", "volume", "ratio",
+            columns=["date", "instrument", "name", "volume", "ratio",
                      "return", "close", "avg_cost"]
         )
 
