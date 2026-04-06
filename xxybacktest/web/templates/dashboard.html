@@ -1,0 +1,423 @@
+{% extends "base.html" %}
+
+{% block title %}账户列表 - 模拟交易系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stats-bar {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .stat-card-main {
+        background: white;
+        padding: 20px 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+    }
+
+    .stat-item {
+        text-align: center;
+        padding: 0 20px;
+        border-right: 1px solid #f0f0f0;
+    }
+
+    .stat-item:last-child {
+        border-right: none;
+    }
+
+    .stat-item .label {
+        font-size: 13px;
+        color: #666;
+        margin-bottom: 6px;
+    }
+
+    .stat-item .value {
+        font-size: 28px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .stat-item .value.positive { color: #e74c3c; }
+    .stat-item .value.negative { color: #27ae60; }
+
+    .stat-card {
+        background: white;
+        padding: 20px 25px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .stat-card .label {
+        font-size: 13px;
+        color: #666;
+        margin-bottom: 8px;
+    }
+
+    .stat-card .value {
+        font-size: 20px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .section-header h2 {
+        font-size: 18px;
+        font-weight: 500;
+        color: #333;
+    }
+
+    .sort-options {
+        font-size: 14px;
+        color: #666;
+    }
+
+    .sort-options select {
+        padding: 6px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: white;
+        margin-left: 8px;
+    }
+
+    .accounts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 20px;
+    }
+
+    .account-card {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+
+    .account-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    }
+
+    .account-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 15px;
+    }
+
+    .account-name {
+        font-size: 16px;
+        font-weight: 500;
+        color: #333;
+        margin-bottom: 4px;
+    }
+
+    .account-id {
+        font-size: 12px;
+        color: #999;
+    }
+
+    .status-badge {
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .status-badge.running {
+        background: #e6f7e6;
+        color: #52c41a;
+    }
+
+    .status-badge.paused {
+        background: #fff7e6;
+        color: #faad14;
+    }
+
+    .status-badge.stopped {
+        background: #fff1f0;
+        color: #ff4d4f;
+    }
+
+    .account-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #f0f0f0;
+    }
+
+    .metric {
+        text-align: center;
+    }
+
+    .metric .label {
+        font-size: 12px;
+        color: #999;
+        margin-bottom: 4px;
+    }
+
+    .metric .value {
+        font-size: 18px;
+        font-weight: 600;
+    }
+
+    .metric .value.positive { color: #e74c3c; }
+    .metric .value.negative { color: #27ae60; }
+
+    .mini-chart {
+        height: 70px;
+        margin-top: 15px;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 80px 20px;
+        color: #999;
+    }
+
+    .empty-state svg {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 20px;
+        opacity: 0.3;
+    }
+
+    .empty-state h3 {
+        font-size: 18px;
+        margin-bottom: 10px;
+        color: #666;
+    }
+
+    .empty-state p {
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 汇总统计 -->
+<div class="stats-bar">
+    <div class="stat-card-main">
+        <div class="stat-item">
+            <div class="label">总账户数</div>
+            <div class="value">{{ stats.total_accounts }}</div>
+        </div>
+        <div class="stat-item">
+            <div class="label">运行中</div>
+            <div class="value positive">{{ stats.running }}</div>
+        </div>
+        <div class="stat-item">
+            <div class="label">累计收益率</div>
+            <div class="value {% if stats.total_return >= 0 %}positive{% else %}negative{% endif %}">
+                {{ "%+.2f"|format(stats.total_return * 100) }}%
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 账户列表 -->
+<div class="section-header">
+    <h2>模拟账户列表</h2>
+    <div class="sort-options">
+        排序方式
+        <select id="sortSelect" onchange="sortAccounts()">
+            <option value="return_desc">累计收益率 ↓</option>
+            <option value="return_asc">累计收益率 ↑</option>
+            <option value="drawdown">最大回撤 ↓</option>
+            <option value="newest">创建时间 ↓</option>
+        </select>
+    </div>
+</div>
+
+{% if accounts %}
+<div class="accounts-grid" id="accountsGrid">
+    {% for account in accounts %}
+    <a href="/account/{{ account.account_id }}" class="account-card" data-return="{{ account.total_return }}" data-drawdown="{{ account.max_drawdown }}" data-created="{{ account.created_at }}">
+        <div class="account-header">
+            <div>
+                <div class="account-name">{{ account.name }}</div>
+                <div class="account-id">{{ account.account_id }}</div>
+            </div>
+            <span class="status-badge {{ account.status }}">
+                {% if account.status == 'running' %}运行中
+                {% elif account.status == 'paused' %}已暂停
+                {% else %}已停止
+                {% endif %}
+            </span>
+        </div>
+
+        <div class="account-metrics">
+            <div class="metric">
+                <div class="label">累计收益</div>
+                <div class="value {% if account.total_return >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ "%+.2f"|format(account.total_return * 100) }}%
+                </div>
+            </div>
+            <div class="metric">
+                <div class="label">最大回撤</div>
+                <div class="value negative">{{ "%.2f"|format(account.max_drawdown * 100) }}%</div>
+            </div>
+        </div>
+
+        <div class="mini-chart" id="chart-{{ account.account_id }}"></div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+        <path d="M3 9h18"></path>
+        <path d="M9 21V9"></path>
+    </svg>
+    <h3>暂无模拟账户</h3>
+    <p>使用 submit() 提交您的第一个策略</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 为每个账户渲染迷你净值曲线（使用真实数据）
+    function initMiniCharts() {
+        const accounts = {{ accounts|tojson }};
+
+        accounts.forEach(acc => {
+            const chartDom = document.getElementById('chart-' + acc.account_id);
+            if (!chartDom) return;
+
+            const chart = echarts.init(chartDom);
+
+            // 使用真实的净值曲线数据
+            let data = acc.nav_curve || [];
+
+            // 如果没有数据，显示一条平线
+            if (data.length === 0) {
+                data = [1.0];
+            }
+
+            // 归一化：以第一个点为基准显示变化趋势
+            const baseValue = data[0];
+            const normalizedData = data.map(v => (v / baseValue));
+
+            const option = {
+                grid: {
+                    left: 0,
+                    right: 0,
+                    top: 2,
+                    bottom: 2
+                },
+                xAxis: {
+                    type: 'category',
+                    show: false,
+                    data: Array.from({length: normalizedData.length}, (_, i) => i)
+                },
+                yAxis: {
+                    type: 'value',
+                    show: false,
+                    scale: true,
+                    min: function(value) {
+                        // 根据数据范围自适应，留一点边距
+                        const range = value.max - value.min;
+                        return Math.max(0, value.min - range * 0.1);
+                    }
+                },
+                series: [{
+                    type: 'line',
+                    data: normalizedData,
+                    smooth: false,  // 使用折线而非平滑曲线，更真实
+                    symbol: 'none',
+                    lineStyle: {
+                        width: 1.5,
+                        color: acc.total_return >= 0 ? '#e74c3c' : '#27ae60'
+                    },
+                    areaStyle: {
+                        color: {
+                            type: 'linear',
+                            x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [
+                                { offset: 0, color: acc.total_return >= 0 ? 'rgba(231, 76, 60, 0.3)' : 'rgba(39, 174, 96, 0.3)' },
+                                { offset: 1, color: acc.total_return >= 0 ? 'rgba(231, 76, 60, 0.05)' : 'rgba(39, 174, 96, 0.05)' }
+                            ]
+                        }
+                    }
+                }],
+                tooltip: {
+                    show: false
+                }
+            };
+
+            chart.setOption(option);
+        });
+
+        // 响应式
+        window.addEventListener('resize', () => {
+            accounts.forEach(acc => {
+                const chartDom = document.getElementById('chart-' + acc.account_id);
+                if (chartDom) {
+                    const chart = echarts.getInstanceByDom(chartDom);
+                    if (chart) chart.resize();
+                }
+            });
+        });
+    }
+
+    function sortAccounts() {
+        const sortType = document.getElementById('sortSelect').value;
+        const grid = document.getElementById('accountsGrid');
+        const cards = Array.from(grid.getElementsByClassName('account-card'));
+
+        cards.sort((a, b) => {
+            switch(sortType) {
+                case 'return_desc':
+                    return parseFloat(b.dataset.return) - parseFloat(a.dataset.return);
+                case 'return_asc':
+                    return parseFloat(a.dataset.return) - parseFloat(b.dataset.return);
+                case 'drawdown':
+                    return parseFloat(b.dataset.drawdown) - parseFloat(a.dataset.drawdown);
+                case 'newest':
+                    return b.dataset.created.localeCompare(a.dataset.created);
+                default:
+                    return 0;
+            }
+        });
+
+        cards.forEach(card => grid.appendChild(card));
+
+        // 排序后需要重新调整图表大小
+        setTimeout(() => {
+            cards.forEach(card => {
+                const chartDom = card.querySelector('.mini-chart');
+                if (chartDom) {
+                    const chart = echarts.getInstanceByDom(chartDom);
+                    if (chart) chart.resize();
+                }
+            });
+        }, 50);
+    }
+
+    // 初始化
+    initMiniCharts();
+</script>
+{% endblock %}

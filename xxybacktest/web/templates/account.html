@@ -1,0 +1,672 @@
+{% extends "base.html" %}
+
+{% block title %}{{ account.name }} - 账户详情{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+    }
+
+    .page-header h2 {
+        font-size: 20px;
+        font-weight: 500;
+        color: #333;
+    }
+
+    .page-header .subtitle {
+        font-size: 13px;
+        color: #999;
+        margin-top: 4px;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+    }
+
+    .btn {
+        padding: 8px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #5a6fd6;
+    }
+
+    .btn-warning {
+        background: #faad14;
+        color: white;
+    }
+
+    .btn-warning:hover {
+        background: #e8a113;
+    }
+
+    .btn-danger {
+        background: #ff4d4f;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #e64446;
+    }
+
+    .back-link {
+        color: #667eea;
+        text-decoration: none;
+        font-size: 14px;
+        margin-bottom: 15px;
+        display: inline-block;
+    }
+
+    .back-link:hover {
+        text-decoration: underline;
+    }
+
+    /* 指标卡片 */
+    .indicators-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+
+    .indicator-card {
+        background: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .indicator-card .label {
+        font-size: 12px;
+        color: #999;
+        margin-bottom: 6px;
+    }
+
+    .indicator-card .value {
+        font-size: 22px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .indicator-card .value.positive { color: #e74c3c; }
+    .indicator-card .value.negative { color: #27ae60; }
+
+    /* 图表区域 */
+    .chart-section {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        margin-bottom: 25px;
+    }
+
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+
+    .chart-header h3 {
+        font-size: 16px;
+        font-weight: 500;
+        color: #333;
+    }
+
+    .chart-container {
+        height: 350px;
+    }
+
+    /* 数据卡片 - 垂直布局 */
+    .data-section {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .data-card {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .data-card h3 {
+        font-size: 16px;
+        font-weight: 500;
+        color: #333;
+        margin-bottom: 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .data-table th {
+        color: #999;
+        font-weight: 500;
+        background: #fafafa;
+    }
+
+    .data-table tr:hover {
+        background: #fafafa;
+    }
+
+    .data-table td {
+        color: #333;
+    }
+
+    .data-table .positive { color: #e74c3c; }
+    .data-table .negative { color: #27ae60; }
+
+    .data-table .empty-cell {
+        color: #999;
+        text-align: center;
+        padding: 30px;
+    }
+
+    /* 计划交易 - 高亮显示 */
+    .signal-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 25px;
+    }
+
+    .signal-card h3 {
+        font-size: 16px;
+        font-weight: 500;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .signal-card .signal-date {
+        font-size: 12px;
+        opacity: 0.9;
+        margin-left: auto;
+    }
+
+    .signal-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .signal-item {
+        background: rgba(255,255,255,0.2);
+        padding: 10px 16px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .signal-item .code {
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .signal-item .name {
+        font-size: 12px;
+        opacity: 0.9;
+    }
+
+    .signal-item .action {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .signal-item .action.buy {
+        background: rgba(231, 76, 60, 0.9);
+    }
+
+    .signal-item .action.sell {
+        background: rgba(39, 174, 96, 0.9);
+    }
+
+    .signal-item .volume {
+        font-size: 12px;
+        opacity: 0.9;
+    }
+
+    .no-signal {
+        padding: 20px;
+        text-align: center;
+        opacity: 0.8;
+        font-size: 14px;
+    }
+
+    /* 分页控件 */
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 5px;
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #f0f0f0;
+    }
+
+    .pagination button {
+        padding: 6px 12px;
+        border: 1px solid #ddd;
+        background: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        color: #666;
+        transition: all 0.2s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+        background: #f5f5f5;
+        border-color: #667eea;
+        color: #667eea;
+    }
+
+    .pagination button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .pagination button.active {
+        background: #667eea;
+        border-color: #667eea;
+        color: white;
+    }
+
+    .pagination .page-info {
+        font-size: 13px;
+        color: #999;
+        margin: 0 10px;
+    }
+
+    /* 状态标签 */
+    .status-text {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+
+    .status-text.running {
+        background: #e6f7e6;
+        color: #52c41a;
+    }
+
+    .status-text.paused {
+        background: #fff7e6;
+        color: #faad14;
+    }
+
+    .status-text.stopped {
+        background: #fff1f0;
+        color: #ff4d4f;
+    }
+
+    @media (max-width: 1200px) {
+        .indicators-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .indicators-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">← 返回账户列表</a>
+
+<!-- 页面头部 -->
+<div class="page-header">
+    <div>
+        <h2>{{ account.name }}</h2>
+        <div class="subtitle">{{ account.account_id }} | 创建于 {{ account.created_at }}</div>
+    </div>
+    <div class="action-buttons">
+        {% if account.status == 'running' %}
+        <button class="btn btn-warning" onclick="pauseAccount()">暂停</button>
+        {% elif account.status == 'paused' %}
+        <button class="btn btn-primary" onclick="resumeAccount()">恢复</button>
+        {% endif %}
+        <button class="btn btn-danger" onclick="deleteAccount()">删除</button>
+    </div>
+</div>
+
+<!-- 绩效指标 -->
+<div class="indicators-grid">
+    <div class="indicator-card">
+        <div class="label">累计收益率</div>
+        <div class="value {% if indicators.total_return >= 0 %}positive{% else %}negative{% endif %}">
+            {{ "%+.2f"|format(indicators.total_return * 100) }}%
+        </div>
+    </div>
+    <div class="indicator-card">
+        <div class="label">年化收益率</div>
+        <div class="value {% if indicators.annual_return >= 0 %}positive{% else %}negative{% endif %}">
+            {{ "%+.2f"|format(indicators.annual_return * 100) }}%
+        </div>
+    </div>
+    <div class="indicator-card">
+        <div class="label">最大回撤</div>
+        <div class="value negative">{{ "%.2f"|format(indicators.max_drawdown * 100) }}%</div>
+    </div>
+    <div class="indicator-card">
+        <div class="label">夏普比率</div>
+        <div class="value">{{ "%.2f"|format(indicators.sharpe_ratio) }}</div>
+    </div>
+    <div class="indicator-card">
+        <div class="label">当前净值</div>
+        <div class="value">{{ "%.4f"|format(indicators.current_nav) }}</div>
+    </div>
+</div>
+
+<!-- 净值曲线 -->
+<div class="chart-section">
+    <div class="chart-header">
+        <h3>净值走势</h3>
+        <span class="status-text {{ account.status }}">
+            {% if account.status == 'running' %}运行中
+            {% elif account.status == 'paused' %}已暂停
+            {% else %}已停止
+            {% endif %}
+        </span>
+    </div>
+    <div id="navChart" class="chart-container"></div>
+</div>
+
+<!-- 计划交易 - 最新信号 -->
+{% if planned_trades %}
+<div class="signal-card">
+    <h3>
+        <span>📋 计划交易（最新信号）</span>
+        <span class="signal-date">{{ planned_trades_date }}</span>
+    </h3>
+    <div class="signal-list">
+        {% for trade in planned_trades %}
+        <div class="signal-item">
+            <span class="code">{{ trade.code }}</span>
+            <span class="name">{{ trade.name or '-' }}</span>
+            <span class="action {{ trade.direction }}">
+                {% if trade.direction == 'buy' %}买入{% else %}卖出{% endif %}
+            </span>
+            <span class="volume">{{ trade.amount }}股</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 持仓和成交 - 上下排列 -->
+<div class="data-section">
+    <!-- 当前持仓 -->
+    <div class="data-card">
+        <h3>当前持仓</h3>
+        {% if positions %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>数量</th>
+                    <th>成本价</th>
+                    <th>市值</th>
+                    <th>占比</th>
+                    <th>累计收益</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pos in positions %}
+                <tr>
+                    <td>{{ pos.code }}</td>
+                    <td>{{ pos.name or '-' }}</td>
+                    <td>{{ pos.amount }}</td>
+                    <td>{{ "%.3f"|format(pos.cost_basis) }}</td>
+                    <td>{{ "%.2f"|format(pos.market_value) }}</td>
+                    <td>{{ "%.1f"|format(pos.ratio) }}%</td>
+                    <td class="{% if pos.cum_return >= 0 %}positive{% else %}negative{% endif %}">
+                        {{ "%+.2f"|format(pos.cum_return) }}%
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-cell">暂无持仓</div>
+        {% endif %}
+    </div>
+
+    <!-- 历史成交 - 带分页 -->
+    <div class="data-card">
+        <h3>
+            <span>历史成交</span>
+            <span style="font-size: 13px; color: #999; font-weight: normal;">共 {{ total_orders }} 条</span>
+        </h3>
+        {% if orders %}
+        <table class="data-table" id="ordersTable">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>方向</th>
+                    <th>数量</th>
+                    <th>成交价</th>
+                </tr>
+            </thead>
+            <tbody id="ordersBody">
+                <!-- 由 JS 填充 -->
+            </tbody>
+        </table>
+        <div class="pagination" id="ordersPagination"></div>
+        {% else %}
+        <div class="empty-cell">暂无成交记录</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 净值曲线图表
+    function initNavChart() {
+        const chart = echarts.init(document.getElementById('navChart'));
+
+        const dates = {{ nav_dates|tojson }};
+        const strategyNav = {{ nav_values|tojson }};
+        const benchmarkNav = {{ benchmark_values|tojson }};
+
+        const option = {
+            tooltip: {
+                trigger: 'axis',
+                formatter: function(params) {
+                    let html = params[0].axisValue + '<br/>';
+                    params.forEach(p => {
+                        html += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+                    });
+                    return html;
+                }
+            },
+            legend: {
+                data: ['策略净值', '基准净值'],
+                top: 0,
+                right: 0
+            },
+            grid: {
+                left: '3%',
+                right: '4%',
+                bottom: '3%',
+                top: '40px',
+                containLabel: true
+            },
+            xAxis: {
+                type: 'category',
+                boundaryGap: false,
+                data: dates,
+                axisLine: { lineStyle: { color: '#ddd' } },
+                axisLabel: { color: '#666', fontSize: 11 }
+            },
+            yAxis: {
+                type: 'value',
+                scale: true,
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { lineStyle: { color: '#f0f0f0' } },
+                axisLabel: { color: '#666', fontSize: 11 }
+            },
+            series: [
+                {
+                    name: '策略净值',
+                    type: 'line',
+                    data: strategyNav,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { color: '#667eea', width: 2 },
+                    areaStyle: {
+                        color: {
+                            type: 'linear',
+                            x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [
+                                { offset: 0, color: 'rgba(102, 126, 234, 0.2)' },
+                                { offset: 1, color: 'rgba(102, 126, 234, 0.01)' }
+                            ]
+                        }
+                    }
+                },
+                {
+                    name: '基准净值',
+                    type: 'line',
+                    data: benchmarkNav,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { color: '#999', width: 1.5, type: 'dashed' }
+                }
+            ]
+        };
+
+        chart.setOption(option);
+
+        window.addEventListener('resize', () => chart.resize());
+    }
+
+    // 成交记录分页
+    const allOrders = {{ orders|tojson }};
+    const ordersPerPage = 10;
+    let currentPage = 1;
+
+    function renderOrders() {
+        const tbody = document.getElementById('ordersBody');
+        const pagination = document.getElementById('ordersPagination');
+
+        if (!tbody || !allOrders || allOrders.length === 0) return;
+
+        const totalPages = Math.ceil(allOrders.length / ordersPerPage);
+        const start = (currentPage - 1) * ordersPerPage;
+        const end = Math.min(start + ordersPerPage, allOrders.length);
+        const pageOrders = allOrders.slice(start, end);
+
+        // 填充表格
+        tbody.innerHTML = pageOrders.map(order => `
+            <tr>
+                <td>${order.trade_date}</td>
+                <td>${order.code}</td>
+                <td>${order.name || '-'}</td>
+                <td class="${order.direction === 'buy' ? 'positive' : 'negative'}">
+                    ${order.direction === 'buy' ? '买入' : '卖出'}
+                </td>
+                <td>${order.amount}</td>
+                <td>${order.price.toFixed(3)}</td>
+            </tr>
+        `).join('');
+
+        // 渲染分页控件
+        let paginationHtml = `
+            <button onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>
+        `;
+
+        // 页码按钮
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                paginationHtml += `<button class="${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+            } else if (i === currentPage - 2 || i === currentPage + 2) {
+                paginationHtml += `<span class="page-info">...</span>`;
+            }
+        }
+
+        paginationHtml += `
+            <button onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>
+            <span class="page-info">${currentPage} / ${totalPages} 页</span>
+        `;
+
+        pagination.innerHTML = paginationHtml;
+    }
+
+    function goToPage(page) {
+        const totalPages = Math.ceil(allOrders.length / ordersPerPage);
+        if (page < 1 || page > totalPages) return;
+        currentPage = page;
+        renderOrders();
+    }
+
+    // 账户操作
+    function pauseAccount() {
+        if (!confirm('确定要暂停该账户吗？')) return;
+        fetch('/api/accounts/{{ account.account_id }}/pause', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => location.reload());
+    }
+
+    function resumeAccount() {
+        fetch('/api/accounts/{{ account.account_id }}/resume', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => location.reload());
+    }
+
+    function deleteAccount() {
+        if (!confirm('确定要删除该账户吗？此操作不可恢复！')) return;
+        fetch('/api/accounts/{{ account.account_id }}', { method: 'DELETE' })
+            .then(r => r.json())
+            .then(() => location.href = '/');
+    }
+
+    // 初始化
+    initNavChart();
+    renderOrders();
+</script>
+{% endblock %}

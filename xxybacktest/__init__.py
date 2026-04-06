@@ -30,4 +30,7 @@ from .rules import Rules
 from .types import Context
 from .data import Data
 
+# 模拟交易模块
+from . import simulation
+
 __version__ = "0.1.0"

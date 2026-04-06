@@ -143,7 +143,7 @@ def run_all(end_date=None):
 
 ---
 
-### ✅ 阶段四：接入 Plombery 定时任务
+### 阶段四：接入 Plombery 定时任务
 
 **前置**：阶段三完成
 
@@ -201,7 +201,7 @@ python run_simulation.py
 
 ---
 
-### ✅ 阶段五：Flask 前端展示
+### 阶段五：Flask 前端展示
 
 **前置**：阶段三完成（有数据可展示）
 
@@ -252,16 +252,135 @@ DELETE /api/accounts/<id>            # 删除
 
 ---
 
+### 阶段六：增量回测模式（性能优化）
+
+**前置**：阶段三完成
+
+**背景**：当前每日重跑会从 `start_date` 到今天重放所有历史交易日的事件循环。账户存续越长，每天的跑批耗时就越长（线性增长）。经分析，瓶颈在于 `handle_bar` 被调用的总次数，而非 `init` 中的取数 SQL。
+
+**目标**：每天只处理今天这 1 个交易日，无论账户跑了多久，每日耗时恒定。
+
+**核心思路：Checkpoint 机制**
+
+每次回测结束后，将当天的完整状态序列化存盘（Checkpoint）。第二天启动时加载 Checkpoint，跳过历史，只运行今天 1 天的事件。
+
+```
+现在：
+  start_date ──────────────────────── today
+  [D1][D2][D3]...[D499][D500][D501]   ← 每天全部重跑
+
+优化后：
+  加载 Checkpoint（D500 结束时的状态）
+                              [D501]   ← 只跑今天
+```
+
+**需要持久化的 Checkpoint 内容**：
+
+| 字段 | 内容 | 格式 |
+|------|------|------|
+| `portfolio` | cash、positions（amount/cost_basis等） | JSON |
+| `performance.returns` | 历史每日收益率序列 | JSON |
+| `performance.position_snapshots` | 历史持仓快照 | Parquet |
+| `performance.position_ratio` | 历史仓位比例序列 | JSON |
+| `logs.order_list` | 历史全部订单 | Parquet |
+| `data.dividend` | 待发放分红缓存 | JSON |
+| `context.g` | 用户自定义变量（必须 JSON 可序列化） | JSON |
+| `last_date` | 最后处理的交易日 | JSON |
+| `code_hash` | initialize/handle_data 源码的哈希 | JSON |
+
+**不需要持久化**（每次重新生成）：
+- `Data._daily_cache`：从 xxydb 重新加载
+- `context.data.calendar`：从 DB 重新查询
+- `event_list`：重新生成
+- `context.df` 等用户在 `init` 中计算的数据：重新执行 `initialize(context)`
+
+**Checkpoint 存储路径**：
+```
+data/simulation_results/checkpoints/{account_id}/checkpoint.json
+data/simulation_results/checkpoints/{account_id}/snapshots.parquet
+data/simulation_results/checkpoints/{account_id}/orders.parquet
+```
+
+**文件改动**：
+
+新增 `xxybacktest/simulation/state.py`：
+```python
+def save_checkpoint(context, account_id, data_path, code_hash): ...
+def load_checkpoint(account_id, data_path): ...  # 返回 dict 或 None
+def apply_checkpoint(context, checkpoint): ...   # 将 checkpoint 注入 context
+```
+
+修改 `xxybacktest/backtest.py`：
+```python
+def run_backtest(
+    initialize, handle_data,
+    start_date, end_date,
+    ...,
+    resume_state=None,   # ← 新增参数，传入 checkpoint dict
+):
+    # resume_state 不为 None 时：
+    # 1. 正常执行 initialize(context)（重建 context.df 等数据）
+    # 2. 用 resume_state 覆盖 portfolio/performance/orders/g 状态
+    # 3. 将 start_date 推进到 last_date 的下一个交易日
+    # 4. 只处理新的事件（从 last_date+1 到 end_date）
+```
+
+修改 `xxybacktest/simulation/runner.py`：
+```python
+def run_single(account_id, end_date, data_path):
+    checkpoint = load_checkpoint(account_id, data_path)
+
+    # 代码变更检测：源码哈希不一致时强制全量
+    code_hash = hash(initialize_code + handle_data_code)
+    if checkpoint and checkpoint['code_hash'] != code_hash:
+        checkpoint = None  # 策略改了，全量重跑
+
+    context = run_backtest(
+        ...,
+        resume_state=checkpoint,  # ← 有则增量，无则全量
+    )
+
+    save_checkpoint(context, account_id, data_path, code_hash)
+    _save_results(account_id, context, data_path)
+```
+
+**降级策略**（保证安全）：
+- Checkpoint 不存在 → 全量回测（同现在）
+- Checkpoint 损坏或读取异常 → 全量回测 + 警告日志
+- 策略源码变更（code_hash 不匹配）→ 全量回测 + 删除旧 Checkpoint
+- `context.g` 含不可序列化对象 → 抛出明确错误，提示用户
+
+**用户侧限制**：
+- `context.g` 中存放的变量必须是 JSON 可序列化类型（数字、字符串、列表、字典）
+- 不可存放 sklearn 模型、DataFrame、自定义对象等
+- 违反此约束时，`save_checkpoint` 会抛出带有明确提示的异常
+
+**性能对比**：
+
+| 场景 | 优化前 | 优化后 |
+|------|--------|--------|
+| 账户运行 1 年（250天） | 跑 250 天 | 跑 1 天 |
+| 账户运行 3 年（750天） | 跑 750 天 | 跑 1 天 |
+| 10 个账户 × 2 年 | 5000 天事件循环 | 10 天事件循环 |
+
+**验收**：
+- 第一次运行：全量回测，结果与现有一致，Checkpoint 文件生成
+- 第二次运行：只处理新增交易日，净值/持仓/订单结果与全量重跑完全一致
+- 策略源码修改后重新 submit：自动触发全量重跑
+
+---
+
 ## 文件结构总览
 
 ```
 xxybacktest/
-├── backtest.py                    # [改] plot=False 时跳过 show()
+├── backtest.py                    # [改] plot=False 时跳过 show()；新增 resume_state 参数
 └── simulation/
     ├── __init__.py                # 导出 submit/pause/resume/delete
     ├── submitter.py               # submit() 接口 + 账户管理
-    ├── runner.py                  # run_all() 重跑引擎
-    └── pipeline.py                # Plombery Pipeline 定义
+    ├── runner.py                  # [改] run_all() 重跑引擎，支持增量模式
+    ├── pipeline.py                # Plombery Pipeline 定义
+    └── state.py                   # [新] Checkpoint 序列化/反序列化
 
 web/
 ├── app.py
@@ -273,7 +392,8 @@ run_simulation.py                  # 启动入口（Plombery + Flask）
 tests/
 ├── test_submitter.py
 ├── test_runner.py
-└── test_pipeline.py
+├── test_pipeline.py
+└── test_state.py                  # [新] Checkpoint 机制测试
 ```
 
 ---
@@ -289,7 +409,9 @@ tests/
                     │
                     ├─► 阶段四（Plombery定时任务）
                     │
-                    └─► 阶段五（Flask前端）
+                    ├─► 阶段五（Flask前端）
+                    │
+                    └─► 阶段六（增量回测模式）
 ```
 
 ---
@@ -299,5 +421,6 @@ tests/
 - 运行前必须 `conda activate vnpy`
 - `data_renew.py` 由用户自行维护，Pipeline 只负责执行它
 - 所有测试代码放 `tests/` 目录
-- 重跑策略：每次全量覆盖，不做增量（简单可靠）
-- 策略运行时间随账户存续时间线性增长，100个账户×1年数据约需几分钟，可接受
+- 重跑策略：每次全量覆盖，不做增量（简单可靠）；账户多时可启用阶段六的增量模式
+- 阶段六启用后，`context.g` 中的变量必须是 JSON 可序列化类型
+- 策略运行时间随账户存续时间线性增长，100个账户×1年数据约需几分钟，可接受；启用增量模式后与账户存续时间无关

@@ -19,7 +19,6 @@ from .trading import (
     order_target_percent as _order_target_percent,
     inout_cash as _inout_cash,
 )
-from itables import show
 
 
 def run_backtest(
@@ -391,12 +390,8 @@ def run_backtest(
     # 回测结束，计算收益率序列 + 绩效指标
     Performance.analyse(context)
 
-    # G3: 展示回测曲线和绩效
-    if plot:
-        Performance.plot(context)
-
     # ------------------------------------------------------------------
-    # 8. 构建结果 DataFrame: context.order / context.pos
+    # 8. 构建结果 DataFrame: context.order / context.pos（无论 plot 如何都构建）
     # ------------------------------------------------------------------
     # order DataFrame
     order_records = []
@@ -419,7 +414,7 @@ def run_backtest(
             columns=["date", "instrument", "name", "volume", "side", "status", "cost"]
         )
 
-    # pos DataFrame
+    # pos DataFrame（取最后一天的持仓作为当前持仓）
     snap_list = context.performance.position_snapshots
     if snap_list:
         pos_rows = []
@@ -440,14 +435,19 @@ def run_backtest(
     else:
         context.pos = pd.DataFrame(
             columns=["date", "instrument", "name", "volume", "ratio",
-                     "return", "close", "avg_cost"]
+                    "return", "close", "avg_cost"]
         )
+
+    # G3: 展示回测曲线和绩效（仅在 plot=True 时）
+    if plot:
+        from itables import show
+        Performance.plot(context)
+        show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position_table')
+        show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order_table')
+
 
     # 释放缓存内存
     Data.clear_cache()
     Data._db.close()
-    
-    show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position_table')
-    show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order_table')
-
+ 
     return context

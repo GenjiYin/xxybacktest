@@ -17,7 +17,12 @@ dependencies = [
     "empyrical-reloaded>=0.5",
     "xxydb>=0.1",
     "itables>=1.0",
+    "flask>=2.3",
+    "gunicorn>=21.0",
 ]
+
+[project.scripts]
+xxy-sim = "xxybacktest.simulation.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -27,3 +32,13 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["xxybacktest*"]
 exclude = ["tests*", "data*", "strategy*", "reports*", "logs*"]
+
+[tool.setuptools.package-data]
+"xxybacktest.web" = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore::DeprecationWarning:fastapi",
+    "ignore::DeprecationWarning:starlette",
+]

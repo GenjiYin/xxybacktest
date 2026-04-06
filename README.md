@@ -447,3 +447,292 @@ result = run_backtest(
 - empyrical-reloaded >= 0.5
 - xxydb >= 0.1
 - itables>=1.0
+
+---
+
+# 模拟交易系统使用指南
+
+模拟交易系统支持将你的策略提交为**模拟交易账户**，系统每天自动重跑回测并生成交易信号，可通过 Web 界面查看净值曲线、持仓和计划交易（信号跟单）。
+
+## 系统架构
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   策略提交   │────▶│  每日重跑   │────▶│  Web 展示   │
+│  submit()   │     │  run_all()  │     │  Flask UI   │
+└─────────────┘     └─────────────┘     └─────────────┘
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │ Plombery定时 │
+                     │  每天 22:00  │
+                     └─────────────┘
+```
+
+## 快速开始
+
+### 1. 提交策略
+
+```python
+from xxybacktest.simulation import submit
+
+def initialize(context):
+    context.universe = ["000001.SZ", "600519.SH"]
+    context.run_daily(handle_data, "9:30")
+
+def handle_data(context):
+    for code in context.universe:
+        context.order_target_percent(code, 0.5)
+
+# 提交策略为模拟账户
+account_id = submit(
+    name="双均线策略",
+    initialize=initialize,
+    handle_data=handle_data,
+    capital=100000,
+    start_date="2025-01-01",  # 可选，默认今天
+    asset_type="stock",       # 可选，默认 stock
+    benchmark="000001.SH",    # 可选，默认 000001.SH
+)
+
+print(f"账户已创建: {account_id}")
+```
+
+### 2. 准备数据更新脚本
+
+自行编写一个数据更新脚本（名称和路径随意），在其中实现行情数据的拉取与入库逻辑。系统每天定时会自动调用它。
+
+```python
+# 示例：my_data_renew.py（路径随意）
+# 在这里编写你的行情数据更新逻辑
+print("正在更新行情数据...")
+# ... 你的数据更新代码 ...
+print("更新完成")
+```
+
+### 3. 启动服务
+
+```bash
+# 安装完成后，可在任意目录使用 xxy-sim 命令
+xxy-sim --data /path/to/your/data --data-renew /path/to/my_data_renew.py --time 22:00:00
+
+# 也可以直接运行脚本（效果相同）
+python run_simulation.py --data /path/to/your/data --data-renew /path/to/my_data_renew.py --time 22:00:00
+```
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--data` | 行情数据目录路径 | `./data` |
+| `--data-renew` | 数据更新脚本路径 | `./data_renew.py` |
+| `--time` | 每日触发时间，格式 `HH:MM:SS` | `22:00:00` |
+
+访问：
+- **Web 界面**: http://localhost:5000
+- **任务面板**: http://localhost:8000
+
+### 3. 查看结果
+
+1. 打开 http://localhost:5000 查看所有账户列表
+2. 点击账户卡片进入详情页
+3. 查看净值曲线、持仓、历史成交和计划交易（信号）
+
+## 核心概念
+
+### 计划交易（信号跟单）
+
+系统每天运行回测后，会提取**最新一天的所有订单**（买入+卖出）作为"计划交易"，方便你跟单操作：
+
+- 在账户详情页顶部以紫色卡片形式展示
+- 显示交易日期、代码、名称、方向、数量
+- 这是散户投资者最常用的功能：获取当天的交易信号进行跟单
+
+### 数据流转
+
+```
+Day 1: submit() 提交策略 ──▶ 创建账户，状态 running
+       │
+Day N: Plombery 每天 22:00 触发
+       │
+       ├─▶ Task 1: 更新行情数据 (data_renew.py)
+       │
+       └─▶ Task 2: 重跑所有 running 账户的回测
+               │
+               ├─▶ 从 start_date 到 today 完整回测
+               ├─▶ 保存净值、持仓、订单到 xxydb
+               └─▶ 生成最新一天的交易信号
+```
+
+## API 参考
+
+### submit() - 提交策略
+
+```python
+from xxybacktest.simulation import submit
+
+account_id = submit(
+    name="策略名称",           # 必填：账户显示名称
+    initialize=initialize,    # 必填：初始化函数
+    handle_data=handle_data,  # 必填：策略函数
+    capital=100000,           # 可选：初始资金，默认 10万
+    start_date="2025-01-01",  # 可选：开始日期，默认今天
+    asset_type="stock",       # 可选：stock/fund，默认 stock
+    benchmark="000001.SH",    # 可选：基准指数，默认 000001.SH
+)
+```
+
+**返回值**: `account_id` (str) - 账户唯一标识，格式 `sim_YYYYMMDD_HHMMSS_XXX`
+
+### pause() / resume() / delete() - 账户管理
+
+```python
+from xxybacktest.simulation import pause, resume, delete, list_accounts
+
+# 暂停账户（停止每日重跑，数据保留）
+pause(account_id)
+
+# 恢复账户
+resume(account_id)
+
+# 删除账户（数据彻底删除，不可恢复）
+delete(account_id)
+
+# 查看所有账户
+accounts = list_accounts()
+for acc in accounts:
+    print(f"{acc['account_id']}: {acc['name']} ({acc['status']})")
+```
+
+### 手动触发重跑（调试）
+
+```python
+from xxybacktest.simulation.runner import run_all
+
+# 手动触发所有 running 账户的重跑
+results = run_all()
+
+# 查看结果
+for account_id, result in results.items():
+    print(f"{account_id}: {result['days']} 天, 最终净值 {result['final_nav']:.4f}")
+```
+
+## Web 界面功能
+
+### 账户列表页 (Dashboard)
+
+- **汇总统计**: 总账户数、运行中数量、所有策略累计收益率之和
+- **账户卡片**: 显示名称、累计收益率、最大回撤、状态、迷你净值曲线
+- **排序**: 支持按收益率、最大回撤、创建时间排序
+
+### 账户详情页 (Account Detail)
+
+- **绩效指标**: 累计收益率、年化收益率、最大回撤、夏普比率、当前净值
+- **净值曲线**: ECharts 图表，策略净值 vs 基准净值
+- **计划交易**: 紫色高亮卡片，显示最新一天的所有交易信号
+- **当前持仓**: 代码、名称、数量、成本价、市值、占比、累计收益
+- **历史成交**: 分页显示（每页10条），支持翻页
+
+### API 端点
+
+```
+GET  /                    账户列表页面
+GET  /account/<id>        账户详情页面
+GET  /api/accounts        账户列表 JSON
+GET  /api/accounts/<id>/nav           净值曲线数据
+GET  /api/accounts/<id>/positions     当前持仓数据
+GET  /api/accounts/<id>/orders        成交记录数据
+POST /api/accounts/<id>/pause         暂停账户
+POST /api/accounts/<id>/resume        恢复账户
+DELETE /api/accounts/<id>             删除账户
+```
+
+## 数据存储
+
+模拟交易数据存储在 `./data/simulation_results/` 目录：
+
+```
+data/
+├── simulation_results/
+│   ├── simulation_accounts.parquet       # 账户配置表
+│   ├── simulation_daily_values.parquet   # 每日净值
+│   ├── simulation_positions.parquet      # 每日持仓快照
+│   └── simulation_orders.parquet         # 全部订单
+```
+
+**注意**: 所有数据使用 xxydb 格式存储（Parquet + DuckDB），可直接用 pandas 读取：
+
+```python
+import pandas as pd
+
+# 读取某账户的净值数据
+nav = pd.read_parquet("data/simulation_results/simulation_daily_values.parquet")
+nav = nav[nav['account_id'] == 'your_account_id']
+
+# 读取订单
+orders = pd.read_parquet("data/simulation_results/simulation_orders.parquet")
+```
+
+## 部署指南
+
+### 环境准备
+
+```bash
+# 1. 安装 Python 3.8+
+# 2. 克隆代码并安装依赖
+git clone <your-repo>
+cd xxybacktest
+pip install -e .
+```
+
+### 启动服务
+
+```bash
+conda activate vnpy
+
+# 指定数据目录、更新脚本路径和触发时间
+xxy-sim \
+  --data /path/to/your/data \
+  --data-renew /path/to/your_data_renew.py \
+  --time 22:00:00
+```
+
+服务启动后会输出：
+```
+==================================================
+模拟交易系统已启动
+==================================================
+数据目录:     /path/to/your/data
+更新脚本:     /path/to/your_data_renew.py
+每日触发时间: 22:00:00
+--------------------------------------------------
+Web 界面: http://localhost:5000
+任务面板: http://localhost:8000
+==================================================
+```
+
+### 生产环境部署
+
+使用 Gunicorn 启动 Flask（多进程模式）：
+
+```bash
+gunicorn -w 4 -b 0.0.0.0:5000 "xxybacktest.web.app:create_app()"
+```
+
+或使用 nohup 后台运行：
+
+```bash
+nohup xxy-sim --data /path/to/data --data-renew /path/to/script.py > simulation.log 2>&1 &
+```
+
+### 定时任务说明
+
+系统每天在 `--time` 指定的时间自动执行：
+1. 运行 `--data-renew` 指定的脚本更新行情数据
+2. 重跑所有 running 账户的回测
+
+## 注意事项
+
+1. **数据依赖**: 模拟交易依赖本地行情数据，通过 `--data` 参数指定数据目录路径
+2. **状态管理**: 只有 `status=running` 的账户会被每日重跑
+3. **全量重跑**: 当前实现每天从 `start_date` 到当天完整重跑（阶段六将支持增量）
+4. **代码变更**: 如需修改策略，需删除旧账户重新 submit（策略源码存于数据库，修改后不会自动同步）
+5. **性能预估**: 账户数量 × 历史天数 = 每日处理的事件数。例如 10 个账户 × 2 年历史 ≈ 5000 个交易日事件，通常几分钟内完成
