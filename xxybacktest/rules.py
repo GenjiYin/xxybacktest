@@ -271,9 +271,31 @@ class Rules:
     # ==================================================================
 
     def rule_100(self):
-        """放在 C6 之后，对缩量后可能产生的非整手数量重新取整到 100 股。"""
-        self.order.amount = int(self.order.amount / 100) * 100
-        if self.order.amount <= 0:
+        """放在 C6 之后，对缩量后可能产生的非整手数量重新取整。
+
+        仅对买入生效：rule_cost 缩量后可能产生非整手数量，此规则兜底取整。
+        卖出不处理：卖出取整（含散股清仓）由 rule_volume_num 全权负责。
+        若 rule_100 对卖出再次取整，会破坏 rule_volume_num 的清仓判断，
+        导致散股永远卖不出去。
+
+        科创板买入：rule_cost 缩量后只需保证 >= 200 股即可，
+        无需按 200 整除（科创板 200 股以上可按 1 股交易）。
+        """
+        order = self.order
+
+        if not order.is_buy:
+            return True  # 卖出由 rule_volume_num 全权负责，此处直接通过
+
+        code = order.code
+        if code.startswith("688"):
+            # 科创板：只保证最低 200 股，不按 200 整除
+            if order.amount < 200:
+                order.amount = 0
+        else:
+            # 非科创板：取整到 100 股
+            order.amount = int(order.amount / 100) * 100
+
+        if order.amount <= 0:
             return False
         return True
 

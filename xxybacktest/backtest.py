@@ -159,17 +159,28 @@ def run_backtest(
                     ctx.portfolio.total_value += new_amount * pos.last_sale_price
 
     def _morning_start(ctx):
-        """E3: 开盘自动卖出退市股。"""
+        """E3: 开盘自动卖出退市股 + 散股。"""
         if ctx.trade.asset_type == "fund":
-            return  # 基金无退市股自动卖出机制
+            return  # 基金无退市股/散股自动卖出机制
+
         # 先收集要处理的 code（避免遍历中修改字典）
         delist_codes = []
-        for code in ctx.portfolio.positions:
+        frac_codes = []
+        for code, pos in ctx.portfolio.positions.items():
             info = Data.get_daily_info(code, ctx)
             if info is not None and "退" in info.name:
                 delist_codes.append(code)
+                continue
+            # 散股检测：持仓数量不足一手（分红配股后可能产生）
+            min_lot = 200 if code.startswith("688") else 100
+            if 0 < pos.amount < min_lot:
+                frac_codes.append(code)
 
         for code in delist_codes:
+            force_sell(code, ctx)
+
+        # 散股强制清仓：用当日行情价（无行情则用持仓记录价），获得现金等价
+        for code in frac_codes:
             force_sell(code, ctx)
 
     def _end_interval(ctx):
