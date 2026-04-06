@@ -146,11 +146,13 @@ def run_backtest(
                     entry["cash_stk"] = pos.amount * entry["stk_div_per_share"]
                     entry["preloaded"] = False
                 if entry["cash_stk"] != 0:
-                    new_amount = entry["cash_stk"]
+                    new_amount = int(entry["cash_stk"])  # 截尾取整，券商按整股派发
+                    if new_amount <= 0:
+                        continue
                     pos.amount += new_amount
                     pos.enable_amount = pos.amount
                     if pos.amount > 0:
-                        pos.total_cost -= new_amount * pos.last_sale_price
+                        # 送股是免费赠股，不改变持仓总成本，只摊薄每股均价
                         pos.total_value = pos.amount * pos.last_sale_price
                         pos.cost_basis = pos.total_cost / pos.amount
                     ctx.portfolio.positions_value += new_amount * pos.last_sale_price
