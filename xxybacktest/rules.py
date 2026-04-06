@@ -186,6 +186,12 @@ class Rules:
             # 清仓时跳过取整
             if order.amount == pos.amount:
                 return True
+            # 避免遗留零散股：卖出后剩余不足一手时，自动清仓
+            remaining = pos.amount - order.amount
+            min_lot = 200 if code.startswith("688") else 100
+            if 0 < remaining < min_lot:
+                order.amount = pos.amount
+                return True
 
         # ---- 取整 ----
         if code.startswith("688"):

@@ -161,7 +161,9 @@ def order_sell(code, amount, context):
         context.portfolio.cash += (value - cost - slip_value)
         pos.amount -= settled_amount
         pos.enable_amount -= settled_amount
-        pos.total_cost = pos.total_cost + cost - value
+        # 按比例减少总成本，保持成本价不变
+        remaining_ratio = pos.amount / (pos.amount + settled_amount)
+        pos.total_cost = pos.total_cost * remaining_ratio
         pos.cost_basis = pos.total_cost / pos.amount
         pos.last_sale_price = settled_price
         pos.total_value = pos.amount * settled_price
