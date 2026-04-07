@@ -29,9 +29,20 @@ def get_accounts():
             last_nav = nav_df['nav'].iloc[-1]
             total_return = (last_nav - first_nav) / first_nav if first_nav > 0 else 0
             current_nav = last_nav
-            # 当日收益：取最新日收益率
-            daily_returns = nav_df['daily_return'].dropna()
-            latest_daily_return = daily_returns.iloc[-1] if len(daily_returns) > 0 else 0
+            # 当日收益：取最新有效日收益率（排除0值，取最后一个非零值）
+            nav_df_copy = nav_df.dropna(subset=['daily_return'])
+            if len(nav_df_copy) > 0:
+                # 从后往前找第一个非零值
+                non_zero_df = nav_df_copy[nav_df_copy['daily_return'] != 0]
+                if len(non_zero_df) > 0:
+                    latest_daily_return = non_zero_df['daily_return'].iloc[-1]
+                    latest_return_date = non_zero_df['date'].iloc[-1]
+                else:
+                    latest_daily_return = nav_df_copy['daily_return'].iloc[-1]
+                    latest_return_date = nav_df_copy['date'].iloc[-1]
+            else:
+                latest_daily_return = 0
+                latest_return_date = ""
         else:
             total_return = 0
             current_nav = 1.0
@@ -43,6 +54,7 @@ def get_accounts():
             'status': acc['status'],
             'total_return': round(total_return, 4),
             'latest_daily_return': round(latest_daily_return, 4),
+            'latest_return_date': latest_return_date,
             'current_nav': round(current_nav, 4),
             'created_at': acc.get('created_at', '')
         })
