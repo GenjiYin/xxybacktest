@@ -9,19 +9,13 @@
 import os
 import re
 import types
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from typing import Callable, Optional
 
 import pandas as pd
 
 from ..backtest import run_backtest
-from .db_utils import close_db, get_db
-
-
-# 数据库表名
-DAILY_VALUES_TABLE = "simulation_daily_values"
-POSITIONS_TABLE = "simulation_positions"
-ORDERS_TABLE = "simulation_orders"
 
 
 def _load_func(code: str, func_name: str = "user_func") -> Callable:
@@ -70,125 +64,90 @@ def _load_func(code: str, func_name: str = "user_func") -> Callable:
 
 def _save_results(account_id: str, context, data_path: str):
     """
-    将回测结果存入数据库（全量覆盖）
+    将回测结果存入独立 Parquet 文件（每账户独立存储，无竞争）
 
     参数:
         account_id: 账户ID
         context: 回测上下文
         data_path: 数据路径
     """
-    # 使用 simulation_results 子目录存储结果
-    sim_path = os.path.join(data_path, "simulation_results")
-    db = get_db(sim_path)
-    try:
-        # 1. 保存每日净值
-        returns_data = getattr(context.performance, 'returns', None)
-        if returns_data is not None and len(returns_data) > 0:
-            nav = 1.0
-            nav_records = []
+    # 每个账户写自己的独立目录
+    account_dir = os.path.join(data_path, "simulation_results", "accounts", account_id)
+    os.makedirs(account_dir, exist_ok=True)
 
-            # 判断 returns 是列表还是 Series/DataFrame
-            if isinstance(returns_data, pd.Series):
-                # 已经是 Series（经过 Performance.analyse 处理后）
-                for date, daily_return in returns_data.items():
-                    nav *= (1 + daily_return)  # daily_return 已经是涨跌幅（如 0.02）
-                    nav_records.append({
-                        'account_id': account_id,
-                        'date': date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date),
-                        'nav': nav,
-                        'daily_return': daily_return,
-                    })
-            else:
-                # 原始列表格式 [[date_str, return_ratio], ...]
-                for date_str, daily_return in returns_data:
-                    nav *= daily_return
-                    nav_records.append({
-                        'account_id': account_id,
-                        'date': date_str,
-                        'nav': nav,
-                        'daily_return': daily_return - 1 if daily_return != 0 else 0,
-                    })
+    # 1. 保存每日净值
+    returns_data = getattr(context.performance, 'returns', None)
+    nav_records = []
+    if returns_data is not None and len(returns_data) > 0:
+        nav = 1.0
 
-            if nav_records:
-                df_nav = pd.DataFrame(nav_records)
-                # 先删除该账户的旧数据
-                try:
-                    old_df = db.query(f"SELECT * FROM {DAILY_VALUES_TABLE}").df()
-                    old_df = old_df[old_df['account_id'] != account_id]
-                    df_nav = pd.concat([old_df, df_nav], ignore_index=True)
-                except Exception:
-                    pass  # 表不存在
+        # 判断 returns 是列表还是 Series/DataFrame
+        if isinstance(returns_data, pd.Series):
+            # 已经是 Series（经过 Performance.analyse 处理后）
+            for date, daily_return in returns_data.items():
+                nav *= (1 + daily_return)  # daily_return 已经是涨跌幅（如 0.02）
+                nav_records.append({
+                    'account_id': account_id,
+                    'date': date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date),
+                    'nav': nav,
+                    'daily_return': daily_return,
+                })
+        else:
+            # 原始列表格式 [[date_str, return_ratio], ...]
+            for date_str, daily_return in returns_data:
+                nav *= daily_return
+                nav_records.append({
+                    'account_id': account_id,
+                    'date': date_str,
+                    'nav': nav,
+                    'daily_return': daily_return - 1 if daily_return != 0 else 0,
+                })
 
-                db.write_data(
-                    df_nav, id=DAILY_VALUES_TABLE, date_col="date",
-                    partitioning=None, unique_together=["account_id", "date"], rewrite=True
-                )
+    if nav_records:
+        df_nav = pd.DataFrame(nav_records)
+        df_nav.to_parquet(os.path.join(account_dir, "daily_values.parquet"), index=False)
 
-        # 2. 保存持仓快照
-        if hasattr(context.performance, 'position_snapshots') and context.performance.position_snapshots:
-            snapshots = context.performance.position_snapshots
-            df_pos = pd.DataFrame(snapshots)
-            df_pos['account_id'] = account_id
+    # 2. 保存持仓快照
+    if hasattr(context.performance, 'position_snapshots') and context.performance.position_snapshots:
+        snapshots = context.performance.position_snapshots
+        df_pos = pd.DataFrame(snapshots)
+        df_pos['account_id'] = account_id
 
-            # 重命名列以匹配表结构
-            df_pos = df_pos.rename(columns={
-                'close': 'close_price',
-            })
+        # 重命名列以匹配表结构
+        df_pos = df_pos.rename(columns={
+            'close': 'close_price',
+        })
 
-            # 确保所有列都存在
-            for col in ['account_id', 'date', 'instrument', 'name', 'volume', 'ratio',
-                        'cum_profit', 'cum_return', 'close_price', 'avg_cost']:
-                if col not in df_pos.columns:
-                    df_pos[col] = '' if col in ['date', 'instrument', 'name'] else 0.0
+        # 确保所有列都存在
+        for col in ['account_id', 'date', 'instrument', 'name', 'volume', 'ratio',
+                    'cum_profit', 'cum_return', 'close_price', 'avg_cost']:
+            if col not in df_pos.columns:
+                df_pos[col] = '' if col in ['date', 'instrument', 'name'] else 0.0
 
-            # 选择需要的列
-            df_pos = df_pos[['account_id', 'date', 'instrument', 'name', 'volume', 'ratio',
-                             'cum_profit', 'cum_return', 'close_price', 'avg_cost']]
+        # 选择需要的列
+        df_pos = df_pos[['account_id', 'date', 'instrument', 'name', 'volume', 'ratio',
+                         'cum_profit', 'cum_return', 'close_price', 'avg_cost']]
 
-            # 先删除该账户的旧数据
-            try:
-                old_df = db.query(f"SELECT * FROM {POSITIONS_TABLE}").df()
-                old_df = old_df[old_df['account_id'] != account_id]
-                df_pos = pd.concat([old_df, df_pos], ignore_index=True)
-            except Exception:
-                pass
+        df_pos.to_parquet(os.path.join(account_dir, "positions.parquet"), index=False)
 
-            db.write_data(
-                df_pos, id=POSITIONS_TABLE, date_col="date",
-                partitioning=None, unique_together=["account_id", "date", "instrument"], rewrite=True
-            )
+    # 3. 保存订单
+    if hasattr(context, 'order') and context.order is not None and not context.order.empty:
+        df_orders = context.order.copy()
+        df_orders['account_id'] = account_id
 
-        # 3. 保存订单
-        if hasattr(context, 'order') and context.order is not None and not context.order.empty:
-            df_orders = context.order.copy()
-            df_orders['account_id'] = account_id
+        # 确保列存在
+        for col in ['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']:
+            if col not in df_orders.columns:
+                df_orders[col] = '' if col in ['date', 'instrument', 'name', 'side', 'status'] else 0.0
 
-            # 确保列存在
-            for col in ['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']:
-                if col not in df_orders.columns:
-                    df_orders[col] = '' if col in ['date', 'instrument', 'name', 'side', 'status'] else 0.0
+        df_orders = df_orders[['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']]
 
-            df_orders = df_orders[['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']]
+        df_orders.to_parquet(os.path.join(account_dir, "orders.parquet"), index=False)
 
-            # 先删除该账户的旧数据
-            try:
-                old_df = db.query(f"SELECT * FROM {ORDERS_TABLE}").df()
-                old_df = old_df[old_df['account_id'] != account_id]
-                df_orders = pd.concat([old_df, df_orders], ignore_index=True)
-            except Exception:
-                pass
-
-            db.write_data(
-                df_orders, id=ORDERS_TABLE, date_col="date",
-                partitioning=None, unique_together=None, rewrite=True
-            )
-
-        returns_count = len(getattr(context.performance, 'returns', []))
-        pos_count = len(getattr(context.performance, 'position_snapshots', []))
-        order_count = len(context.order) if hasattr(context, 'order') and context.order is not None else 0
-        print(f"  [存储完成] 净值记录: {returns_count}, 持仓快照: {pos_count}, 订单: {order_count}")
-    finally:
-        close_db(sim_path)
+    returns_count = len(getattr(context.performance, 'returns', []))
+    pos_count = len(getattr(context.performance, 'position_snapshots', []))
+    order_count = len(context.order) if hasattr(context, 'order') and context.order is not None else 0
+    print(f"  [存储完成] 净值记录: {returns_count}, 持仓快照: {pos_count}, 订单: {order_count}")
 
 
 def run_single(account_id: str, end_date: Optional[str] = None, data_path: str = "./data") -> dict:
@@ -288,7 +247,7 @@ def run_single(account_id: str, end_date: Optional[str] = None, data_path: str =
 
 def run_all(end_date: Optional[str] = None, data_path: str = "./data") -> list:
     """
-    对所有运行中账户执行回测并存库
+    对所有运行中账户执行回测并存库（并行执行）
 
     参数:
         end_date: 结束日期，默认为今天
@@ -313,12 +272,25 @@ def run_all(end_date: Optional[str] = None, data_path: str = "./data") -> list:
         print("[提示] 没有运行中的账户")
         return []
 
-    print(f"[信息] 共 {len(accounts)} 个运行中账户")
+    print(f"[信息] 共 {len(accounts)} 个运行中账户，开始并行执行")
+
+    # max_workers 默认用 CPU 核心数，也可以写死为 4
+    max_workers = min(len(accounts), os.cpu_count() or 4)
 
     results = []
-    for account in accounts:
-        result = run_single(account['account_id'], end_date, data_path)
-        results.append(result)
+    with ProcessPoolExecutor(max_workers=max_workers) as pool:
+        future_to_id = {
+            pool.submit(run_single, acc['account_id'], end_date, data_path): acc['account_id']
+            for acc in accounts
+        }
+        for future in as_completed(future_to_id):
+            account_id = future_to_id[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                print(f"[错误] {account_id} 执行异常: {e}")
+                result = {'account_id': account_id, 'status': 'error', 'reason': str(e)}
+            results.append(result)
 
     # 统计
     success_count = sum(1 for r in results if r['status'] == 'success')
@@ -343,21 +315,11 @@ def get_account_nav(account_id: str, data_path: str = "./data") -> pd.DataFrame:
     返回:
         DataFrame: 包含 date, nav, daily_return 列
     """
-    sim_path = os.path.join(data_path, "simulation_results")
-    db = get_db(sim_path)
-    try:
-        try:
-            df = db.query(f"""
-                SELECT date, nav, daily_return
-                FROM {DAILY_VALUES_TABLE}
-                WHERE account_id = '{account_id}'
-                ORDER BY date
-            """).df()
-            return df
-        except Exception:
-            return pd.DataFrame(columns=['date', 'nav', 'daily_return'])
-    finally:
-        close_db(sim_path)
+    path = os.path.join(data_path, "simulation_results", "accounts", account_id, "daily_values.parquet")
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=['date', 'nav', 'daily_return'])
+    df = pd.read_parquet(path)
+    return df[['date', 'nav', 'daily_return']].sort_values('date').reset_index(drop=True)
 
 
 def get_account_positions(account_id: str, date: Optional[str] = None, data_path: str = "./data") -> pd.DataFrame:
@@ -372,36 +334,19 @@ def get_account_positions(account_id: str, date: Optional[str] = None, data_path
     返回:
         DataFrame: 持仓信息
     """
-    sim_path = os.path.join(data_path, "simulation_results")
-    db = get_db(sim_path)
-    try:
-        try:
-            if date:
-                df = db.query(f"""
-                    SELECT date, instrument, name, volume, ratio, cum_profit, cum_return, close_price, avg_cost
-                    FROM {POSITIONS_TABLE}
-                    WHERE account_id = '{account_id}' AND date = '{date}'
-                    ORDER BY ratio DESC
-                """).df()
-            else:
-                # 获取最新日期的持仓
-                df = db.query(f"""
-                    SELECT date, instrument, name, volume, ratio, cum_profit, cum_return, close_price, avg_cost
-                    FROM {POSITIONS_TABLE}
-                    WHERE account_id = '{account_id}'
-                    ORDER BY date DESC
-                    LIMIT 100
-                """).df()
-                # 只保留最新日期的数据
-                if not df.empty:
-                    latest_date = df['date'].iloc[0]
-                    df = df[df['date'] == latest_date]
-            return df
-        except Exception:
-            return pd.DataFrame(columns=['date', 'instrument', 'name', 'volume', 'ratio',
-                                          'cum_profit', 'cum_return', 'close_price', 'avg_cost'])
-    finally:
-        close_db(sim_path)
+    path = os.path.join(data_path, "simulation_results", "accounts", account_id, "positions.parquet")
+    cols = ['date', 'instrument', 'name', 'volume', 'ratio', 'cum_profit', 'cum_return', 'close_price', 'avg_cost']
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=cols)
+    df = pd.read_parquet(path)
+    if date:
+        df = df[df['date'] == date]
+    else:
+        # 取最新日期的持仓
+        if not df.empty:
+            latest_date = df['date'].max()
+            df = df[df['date'] == latest_date]
+    return df.sort_values('ratio', ascending=False).reset_index(drop=True)
 
 
 def get_account_orders(account_id: str, limit: int = 100, data_path: str = "./data") -> pd.DataFrame:
@@ -416,19 +361,9 @@ def get_account_orders(account_id: str, limit: int = 100, data_path: str = "./da
     返回:
         DataFrame: 订单信息
     """
-    sim_path = os.path.join(data_path, "simulation_results")
-    db = get_db(sim_path)
-    try:
-        try:
-            df = db.query(f"""
-                SELECT date, instrument, name, volume, side, status, cost
-                FROM {ORDERS_TABLE}
-                WHERE account_id = '{account_id}'
-                ORDER BY date DESC
-                LIMIT {limit}
-            """).df()
-            return df
-        except Exception:
-            return pd.DataFrame(columns=['date', 'instrument', 'name', 'volume', 'side', 'status', 'cost'])
-    finally:
-        close_db(sim_path)
+    path = os.path.join(data_path, "simulation_results", "accounts", account_id, "orders.parquet")
+    cols = ['date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=cols)
+    df = pd.read_parquet(path)
+    return df.sort_values('date', ascending=False).head(limit).reset_index(drop=True)
