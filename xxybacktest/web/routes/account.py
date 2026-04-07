@@ -146,12 +146,24 @@ def account_detail(account_id):
             bench *= (1 + daily_ret * 0.5 + np.random.normal(0, 0.005))
             benchmark_values.append(round(bench, 4))
 
+    # 先加载成交记录，从中建 instrument→name 字典（成交时名称一定有值）
+    orders_df = get_account_orders(account_id, limit=10000, data_path=DEFAULT_DATA_PATH)
+    orders_name_map = {}
+    if not orders_df.empty:
+        for _, r in orders_df.iterrows():
+            if r['name'] and r['instrument'] not in orders_name_map:
+                orders_name_map[r['instrument']] = r['name']
+
+    # 加载持仓，用成交记录的名称字典补全缺失名称
     positions_df = get_account_positions(account_id, data_path=DEFAULT_DATA_PATH)
-    positions_df = _fill_missing_names(
-        positions_df, acc.get('data_path', DEFAULT_DATA_PATH), acc.get('asset_type', 'stock')
-    )
     if not positions_df.empty:
         positions_df['date'] = positions_df['date'].astype(str).str[:10]
+        positions_df['name'] = positions_df.apply(
+            lambda row: orders_name_map.get(row['instrument'], row['name'])
+            if (not row['name'] or row['name'] != row['name'])  # 空或 NaN
+            else row['name'],
+            axis=1
+        )
     positions = []
     for _, row in positions_df.iterrows():
         positions.append({
@@ -164,7 +176,6 @@ def account_detail(account_id):
             'cum_return': round(row['cum_return'] * 100, 2)
         })
 
-    orders_df = get_account_orders(account_id, limit=10000, data_path=DEFAULT_DATA_PATH)
     if not orders_df.empty:
         orders_df['date'] = orders_df['date'].astype(str).str[:10]
     all_orders = []
