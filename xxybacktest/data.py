@@ -190,6 +190,22 @@ class Data:
                 if info.name and code not in Data._instrument_names:
                     Data._instrument_names[code] = info.name
 
+        # 二次补充：从 daily_fund 近15天数据补充名称，
+        # 解决部分基金在回测区间内 name 字段为空/NULL 的情况。
+        try:
+            df_recent = Data._db.query(f"""
+                SELECT instrument, name
+                FROM daily_fund
+                WHERE date >= '{end_date}'::DATE - INTERVAL '15 days'
+                  AND name IS NOT NULL AND name != ''
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY instrument ORDER BY date DESC) = 1
+            """).df()
+            for _, row in df_recent.iterrows():
+                if row['name'] and row['instrument'] not in Data._instrument_names:
+                    Data._instrument_names[row['instrument']] = row['name']
+        except Exception:
+            pass
+
     @staticmethod
     def clear_cache():
         """释放缓存内存，回测结束后可调用。"""
