@@ -418,13 +418,13 @@
 </div>
 
 <!-- 计划交易 - 最新信号 -->
-{% if planned_trades %}
 <div class="signal-card">
     <h3>
         <span>📋 计划交易（最新信号）</span>
-        <span class="signal-date">{{ planned_trades_date }}</span>
+        {% if planned_trades_date %}<span class="signal-date">{{ planned_trades_date }}</span>{% endif %}
     </h3>
     <div class="signal-list">
+        {% if planned_trades %}
         {% for trade in planned_trades %}
         <div class="signal-item">
             <span class="code">{{ trade.code }}</span>
@@ -435,9 +435,11 @@
             <span class="volume">{{ trade.amount }}股</span>
         </div>
         {% endfor %}
+        {% else %}
+        <div style="color: #999; font-size: 13px; padding: 12px 0; text-align: center;">当日暂无计划交易</div>
+        {% endif %}
     </div>
 </div>
-{% endif %}
 
 <!-- 持仓和成交 - 上下排列 -->
 <div class="data-section">

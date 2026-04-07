@@ -209,15 +209,13 @@ def account_detail(account_id):
     # 计划交易：只显示当天的交易（如果有的话）
     from datetime import datetime
     planned_trades = []
-    planned_trades_date = ""
     today = datetime.now().strftime('%Y-%m-%d')
+    planned_trades_date = today
     if all_orders:
         planned_trades = [
             order for order in all_orders
             if order['trade_date'] == today
         ][:10]
-        if planned_trades:
-            planned_trades_date = today
 
     return render_template(
         'account.html',
