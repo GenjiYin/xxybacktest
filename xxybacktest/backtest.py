@@ -225,7 +225,7 @@ def run_backtest(
             cum_profit = pos.amount * (pos.last_sale_price - pos.cost_basis)
             _day_cache = Data._daily_cache.get(date_str, {}) if Data._daily_cache else {}
             _info = _day_cache.get(code)
-            name = _info.name if _info is not None else ""
+            name = (_info.name if _info is not None else "") or Data._instrument_names.get(code, "")
             ctx.performance.position_snapshots.append({
                 "date": date_str,
                 "instrument": code,

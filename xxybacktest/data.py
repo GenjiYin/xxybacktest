@@ -52,6 +52,7 @@ class Data:
     _daily_cache = None  # O1: {date_str: {code: DailyInfo}} 全区间日线缓存
     _dividend_reg_cache = None  # O2: {date_str: {code: DividendInfo}} 全区间分红缓存（按 register_date）
     _asset_type = "stock"  # F-B4: 资产类型，"stock" 或 "fund"
+    _instrument_names = {}  # {code: name} 股票名称备用查找表（当日缓存无数据时回落用）
 
     # ------------------------------------------------------------------
     # 初始化
@@ -119,6 +120,12 @@ class Data:
 
         Data._daily_cache = cache
 
+        # 顺带填充名称备用表（只补充新 code，不覆盖已有记录）
+        for day_dict in cache.values():
+            for code, info in day_dict.items():
+                if info.name and code not in Data._instrument_names:
+                    Data._instrument_names[code] = info.name
+
     @staticmethod
     def preload_fund_daily(start_date, end_date):
         """F-B1: 一次性加载全区间基金日线行情到内存缓存。
@@ -177,12 +184,19 @@ class Data:
 
         Data._daily_cache = cache
 
+        # 顺带填充名称备用表（只补充新 code，不覆盖已有记录）
+        for day_dict in cache.values():
+            for code, info in day_dict.items():
+                if info.name and code not in Data._instrument_names:
+                    Data._instrument_names[code] = info.name
+
     @staticmethod
     def clear_cache():
         """释放缓存内存，回测结束后可调用。"""
         Data._daily_cache = None
         Data._dividend_reg_cache = None
         Data._asset_type = "stock"
+        Data._instrument_names = {}
 
     @staticmethod
     def preload_fund_dividend(start_date, end_date):
