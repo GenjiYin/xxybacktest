@@ -8,6 +8,63 @@ from xxybacktest.simulation.runner import get_account_nav, get_account_positions
 
 account_bp = Blueprint('account', __name__)
 
+
+def _fill_missing_names(df, data_path, asset_type):
+    """对 name 字段为空的行，从数据库实时补充名称。
+
+    stock: 查 daily_bar 近15天
+    fund:  依次查 fund_dividend、fund_split（小表，不分区）
+    """
+    if df.empty:
+        return df
+    missing_mask = df['name'].isna() | (df['name'] == '')
+    if not missing_mask.any():
+        return df
+
+    missing_codes = df.loc[missing_mask, 'instrument'].unique().tolist()
+    codes_str = "', '".join(missing_codes)
+
+    try:
+        from xxydb import xxydb as _xxydb
+        db = _xxydb(path=data_path)
+        names_map = {}
+        if asset_type == 'fund':
+            for tbl in ('fund_dividend', 'fund_split'):
+                try:
+                    rows = db.query(
+                        f"SELECT DISTINCT instrument, name FROM {tbl} "
+                        f"WHERE instrument IN ('{codes_str}') "
+                        f"AND name IS NOT NULL AND name != ''"
+                    ).df()
+                    for _, r in rows.iterrows():
+                        if r['name'] and r['instrument'] not in names_map:
+                            names_map[r['instrument']] = r['name']
+                except Exception:
+                    pass
+        else:
+            try:
+                rows = db.query(f"""
+                    SELECT instrument, name FROM daily_bar
+                    WHERE instrument IN ('{codes_str}')
+                      AND name IS NOT NULL AND name != ''
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY instrument ORDER BY date DESC) = 1
+                """).df()
+                for _, r in rows.iterrows():
+                    if r['name']:
+                        names_map[r['instrument']] = r['name']
+            except Exception:
+                pass
+        db.close()
+
+        if names_map:
+            df = df.copy()
+            df.loc[missing_mask, 'name'] = df.loc[missing_mask, 'instrument'].map(
+                lambda code: names_map.get(code, '')
+            )
+    except Exception:
+        pass
+    return df
+
 # 默认数据路径
 DEFAULT_DATA_PATH = os.environ.get('XXY_DATA_PATH', './data')
 
@@ -90,6 +147,9 @@ def account_detail(account_id):
             benchmark_values.append(round(bench, 4))
 
     positions_df = get_account_positions(account_id, data_path=DEFAULT_DATA_PATH)
+    positions_df = _fill_missing_names(
+        positions_df, acc.get('data_path', DEFAULT_DATA_PATH), acc.get('asset_type', 'stock')
+    )
     if not positions_df.empty:
         positions_df['date'] = positions_df['date'].astype(str).str[:10]
     positions = []

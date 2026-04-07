@@ -206,6 +206,20 @@ class Data:
         except Exception:
             pass
 
+        # 三次补充：fund_dividend / fund_split 是不分区的小表，直接全量扫描，
+        # 作为 daily_fund.name 为空时的最终兜底。
+        for _tbl in ('fund_dividend', 'fund_split'):
+            try:
+                df_tbl = Data._db.query(
+                    f"SELECT DISTINCT instrument, name FROM {_tbl} "
+                    f"WHERE name IS NOT NULL AND name != ''"
+                ).df()
+                for _, row in df_tbl.iterrows():
+                    if row['name'] and row['instrument'] not in Data._instrument_names:
+                        Data._instrument_names[row['instrument']] = row['name']
+            except Exception:
+                pass
+
     @staticmethod
     def clear_cache():
         """释放缓存内存，回测结束后可调用。"""
