@@ -40,10 +40,10 @@ def index():
                 non_zero_df = nav_df_copy[nav_df_copy['daily_return'] != 0]
                 if len(non_zero_df) > 0:
                     latest_daily_return = non_zero_df['daily_return'].iloc[-1]
-                    latest_return_date = non_zero_df['date'].iloc[-1]
+                    latest_return_date = str(non_zero_df['date'].iloc[-1])[:10]
                 else:
                     latest_daily_return = nav_df_copy['daily_return'].iloc[-1]
-                    latest_return_date = nav_df_copy['date'].iloc[-1]
+                    latest_return_date = str(nav_df_copy['date'].iloc[-1])[:10]
             else:
                 latest_daily_return = 0
                 latest_return_date = ""

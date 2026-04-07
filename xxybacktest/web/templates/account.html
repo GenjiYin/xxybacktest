@@ -372,7 +372,7 @@
 <!-- 绩效指标 -->
 <div class="indicators-grid">
     <div class="indicator-card">
-        <div class="label">{{ indicators.latest_return_date or '当日' }}收益率</div>
+        <div class="label">当日收益率{% if indicators.latest_return_date %}({{ indicators.latest_return_date }}){% endif %}</div>
         <div class="value {% if indicators.latest_daily_return >= 0 %}positive{% else %}negative{% endif %}">
             {{ "%+.2f"|format(indicators.latest_daily_return * 100) }}%
         </div>
