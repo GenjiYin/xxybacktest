@@ -32,9 +32,14 @@ def index():
             rolling_max = nav_series.cummax()
             drawdowns = (nav_series - rolling_max) / rolling_max
             max_drawdown = abs(drawdowns.min()) if len(drawdowns) > 0 else 0
+
+            # 当日收益：取最新日收益率
+            daily_returns = nav_df['daily_return'].dropna()
+            latest_daily_return = daily_returns.iloc[-1] if len(daily_returns) > 0 else 0
         else:
             total_return = 0
             max_drawdown = 0
+            latest_daily_return = 0
 
         created_at = acc.get('created_at', '')
         if hasattr(created_at, 'strftime'):
@@ -59,6 +64,7 @@ def index():
             'name': acc['name'],
             'status': acc['status'],
             'total_return': total_return,
+            'latest_daily_return': latest_daily_return,
             'max_drawdown': max_drawdown,
             'created_at': created_at,
             'nav_curve': nav_curve

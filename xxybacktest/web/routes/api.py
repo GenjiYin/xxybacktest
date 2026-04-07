@@ -29,15 +29,20 @@ def get_accounts():
             last_nav = nav_df['nav'].iloc[-1]
             total_return = (last_nav - first_nav) / first_nav if first_nav > 0 else 0
             current_nav = last_nav
+            # 当日收益：取最新日收益率
+            daily_returns = nav_df['daily_return'].dropna()
+            latest_daily_return = daily_returns.iloc[-1] if len(daily_returns) > 0 else 0
         else:
             total_return = 0
             current_nav = 1.0
+            latest_daily_return = 0
 
         accounts.append({
             'account_id': account_id,
             'name': acc['name'],
             'status': acc['status'],
             'total_return': round(total_return, 4),
+            'latest_daily_return': round(latest_daily_return, 4),
             'current_nav': round(current_nav, 4),
             'created_at': acc.get('created_at', '')
         })

@@ -126,7 +126,11 @@ def account_detail(account_id):
         else:
             sharpe_ratio = 0
 
+        # 当日收益：取最新日收益率
+        latest_daily_return = daily_returns.iloc[-1] if len(daily_returns) > 0 else 0
+
         indicators = {
+            'latest_daily_return': latest_daily_return,
             'total_return': total_return,
             'annual_return': annual_return,
             'max_drawdown': max_drawdown,
