@@ -206,15 +206,18 @@ def account_detail(account_id):
             'price': round(row['cost'] / abs(row['volume']), 2) if row['volume'] != 0 else 0
         })
 
+    # 计划交易：只显示当天的交易（如果有的话）
+    from datetime import datetime
     planned_trades = []
     planned_trades_date = ""
+    today = datetime.now().strftime('%Y-%m-%d')
     if all_orders:
-        latest_date = max(order['trade_date'] for order in all_orders)
-        planned_trades_date = latest_date
         planned_trades = [
             order for order in all_orders
-            if order['trade_date'] == latest_date
+            if order['trade_date'] == today
         ][:10]
+        if planned_trades:
+            planned_trades_date = today
 
     return render_template(
         'account.html',
