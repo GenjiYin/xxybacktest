@@ -1,0 +1,2 @@
+[console_scripts]
+xxy-sim = xxybacktest.simulation.main:main

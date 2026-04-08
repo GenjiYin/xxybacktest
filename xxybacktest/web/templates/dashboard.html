@@ -4,6 +4,7 @@
 
 {% block extra_css %}
 <style>
+    /* ── 原有样式 ── */
     .stats-bar {
         display: grid;
         grid-template-columns: 2fr 1fr;
@@ -82,6 +83,12 @@
         color: #333;
     }
 
+    .section-header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
     .sort-options {
         font-size: 14px;
         color: #666;
@@ -111,6 +118,7 @@
         text-decoration: none;
         color: inherit;
         display: block;
+        position: relative; /* 复选框绝对定位需要 */
     }
 
     .account-card:hover {
@@ -212,6 +220,358 @@
     .empty-state p {
         font-size: 14px;
     }
+
+    /* ── 策略组合：触发按钮 ── */
+    .combo-toggle-btn {
+        padding: 6px 14px;
+        border: 1.5px solid #667eea;
+        border-radius: 6px;
+        background: white;
+        color: #667eea;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+    .combo-toggle-btn:hover { background: #f0f2ff; }
+    .combo-toggle-btn.active {
+        background: #667eea;
+        color: white;
+    }
+
+    /* ── 策略组合：选择模式下的卡片 ── */
+    .account-card.selectable:hover {
+        transform: none;
+        box-shadow: 0 0 0 2px #667eea, 0 4px 16px rgba(0,0,0,0.08);
+    }
+    .account-card.selected {
+        box-shadow: 0 0 0 2.5px #667eea !important;
+        background: #f6f5ff;
+        transform: none;
+    }
+
+    /* 复选框指示器（右上角） */
+    .combo-checkbox {
+        display: none;
+        width: 22px;
+        height: 22px;
+        border: 2px solid #ccc;
+        border-radius: 5px;
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        background: white;
+        transition: all 0.15s;
+        z-index: 1;
+        pointer-events: none;
+    }
+    .account-card.selectable .combo-checkbox { display: block; }
+    .account-card.selected .combo-checkbox {
+        background: #667eea;
+        border-color: #667eea;
+    }
+    .account-card.selected .combo-checkbox::after {
+        content: '✓';
+        position: absolute;
+        top: -2px;
+        left: 3px;
+        color: white;
+        font-size: 14px;
+        font-weight: bold;
+    }
+
+    /* ── 底部浮动面板 ── */
+    .combo-panel {
+        position: fixed;
+        bottom: -220px;
+        left: 0;
+        right: 0;
+        background: white;
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.12);
+        z-index: 100;
+        transition: bottom 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+        padding: 14px 40px 16px;
+        border-top: 1px solid #ebebeb;
+    }
+    .combo-panel.visible { bottom: 0; }
+
+    .combo-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .combo-panel-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+    }
+    .combo-clear-btn {
+        background: none;
+        border: none;
+        font-size: 13px;
+        color: #999;
+        cursor: pointer;
+        padding: 0;
+    }
+    .combo-clear-btn:hover { color: #e74c3c; }
+
+    .combo-weight-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+        max-height: 88px;
+        overflow-y: auto;
+    }
+
+    .combo-weight-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        background: #f5f7fa;
+        padding: 5px 10px 5px 12px;
+        border-radius: 6px;
+        border: 1px solid #e8e8e8;
+    }
+    .combo-weight-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: #333;
+        max-width: 90px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .combo-weight-id {
+        font-size: 11px;
+        color: #bbb;
+        display: none; /* 空间不够时隐藏 */
+    }
+    .combo-weight-input-wrap {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 13px;
+        color: #555;
+    }
+    .combo-weight-input {
+        width: 50px;
+        padding: 3px 6px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        text-align: center;
+        font-size: 13px;
+        background: white;
+    }
+    .combo-weight-input:focus { border-color: #667eea; outline: none; }
+    .combo-remove-btn {
+        background: none;
+        border: none;
+        color: #ccc;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0 2px;
+        margin-left: 2px;
+    }
+    .combo-remove-btn:hover { color: #e74c3c; }
+
+    .combo-panel-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .combo-weight-total {
+        font-size: 13px;
+        color: #666;
+    }
+    .combo-weight-total.ok strong { color: #52c41a; }
+    .combo-weight-total.warn strong { color: #faad14; }
+    .combo-weight-total .warn-tag {
+        font-size: 12px;
+        color: #faad14;
+        margin-left: 6px;
+    }
+
+    .combo-submit-btn {
+        padding: 8px 22px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        letter-spacing: 0.3px;
+    }
+    .combo-submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .combo-submit-btn:not(:disabled):hover { opacity: 0.88; }
+
+    /* ── 全屏弹窗 ── */
+    .combo-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.52);
+        z-index: 200;
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+    .combo-modal-overlay.open { display: flex; }
+
+    .combo-modal {
+        background: white;
+        border-radius: 14px;
+        width: 92%;
+        max-width: 1120px;
+        height: 82vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+        overflow: hidden;
+        animation: modalIn 0.22s ease;
+    }
+    @keyframes modalIn {
+        from { opacity: 0; transform: scale(0.96) translateY(12px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .combo-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+        border-bottom: 1px solid #f0f0f0;
+        flex-shrink: 0;
+    }
+    .combo-modal-header h3 {
+        font-size: 17px;
+        font-weight: 600;
+        color: #222;
+    }
+    .combo-close-btn {
+        background: none;
+        border: none;
+        font-size: 22px;
+        color: #aaa;
+        cursor: pointer;
+        padding: 0 4px;
+        line-height: 1;
+        transition: color 0.15s;
+    }
+    .combo-close-btn:hover { color: #333; }
+
+    .combo-modal-body {
+        display: grid;
+        grid-template-columns: 1fr 250px;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .combo-chart-area {
+        padding: 12px 16px 12px 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    #comboChart {
+        flex: 1;
+        width: 100%;
+    }
+
+    .combo-stats-area {
+        padding: 20px 18px;
+        border-left: 1px solid #f0f0f0;
+        overflow-y: auto;
+    }
+
+    .combo-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        color: #aaa;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        margin-bottom: 12px;
+        margin-top: 20px;
+    }
+    .combo-section-title:first-child { margin-top: 0; }
+
+    /* 权重配置条 */
+    .combo-config-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+    .combo-config-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+    .combo-config-name {
+        font-size: 12px;
+        color: #444;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .combo-config-bar-wrap {
+        width: 60px;
+        height: 5px;
+        background: #eee;
+        border-radius: 3px;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    .combo-config-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+    }
+    .combo-config-pct {
+        font-size: 12px;
+        color: #888;
+        width: 34px;
+        text-align: right;
+        flex-shrink: 0;
+    }
+
+    /* 指标行 */
+    .indicator-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 7px 0;
+        font-size: 13px;
+        border-bottom: 1px solid #f7f7f7;
+    }
+    .indicator-row:last-child { border-bottom: none; }
+    .indicator-row .ind-label { color: #888; }
+    .indicator-row .ind-val   { font-weight: 600; color: #333; }
+    .indicator-row .positive  { color: #e74c3c; }
+    .indicator-row .negative  { color: #27ae60; }
+
+    /* 加载态 */
+    .combo-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #aaa;
+        font-size: 14px;
+        gap: 8px;
+    }
+    .combo-loading-spinner {
+        width: 18px; height: 18px;
+        border: 2px solid #eee;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 {% endblock %}
 
@@ -239,21 +599,34 @@
 <!-- 账户列表 -->
 <div class="section-header">
     <h2>模拟账户列表</h2>
-    <div class="sort-options">
-        排序方式
-        <select id="sortSelect" onchange="sortAccounts()">
-            <option value="return_desc">累计收益率 ↓</option>
-            <option value="return_asc">累计收益率 ↑</option>
-            <option value="drawdown">最大回撤 ↓</option>
-            <option value="newest">创建时间 ↓</option>
-        </select>
+    <div class="section-header-right">
+        <button id="comboBtnToggle" class="combo-toggle-btn" onclick="toggleComboMode()">⊕ 策略组合</button>
+        <div class="sort-options">
+            排序方式
+            <select id="sortSelect" onchange="sortAccounts()">
+                <option value="return_desc">累计收益率 ↓</option>
+                <option value="return_asc">累计收益率 ↑</option>
+                <option value="drawdown">最大回撤 ↓</option>
+                <option value="newest">创建时间 ↓</option>
+            </select>
+        </div>
     </div>
 </div>
 
 {% if accounts %}
 <div class="accounts-grid" id="accountsGrid">
     {% for account in accounts %}
-    <a href="/account/{{ account.account_id }}" class="account-card" data-return="{{ account.total_return }}" data-drawdown="{{ account.max_drawdown }}" data-created="{{ account.created_at }}">
+    <a href="/account/{{ account.account_id }}"
+       class="account-card"
+       id="card-{{ account.account_id }}"
+       onclick="handleCardClick(event, '{{ account.account_id }}', '{{ account.name | e }}')"
+       data-return="{{ account.total_return }}"
+       data-drawdown="{{ account.max_drawdown }}"
+       data-created="{{ account.created_at }}">
+
+        <!-- 右上角复选框（选择模式时显示） -->
+        <div class="combo-checkbox"></div>
+
         <div class="account-header">
             <div>
                 <div class="account-name">{{ account.name }}</div>
@@ -301,11 +674,47 @@
     <p>使用 submit() 提交您的第一个策略</p>
 </div>
 {% endif %}
+
+<!-- ── 底部浮动面板 ── -->
+<div id="comboPanel" class="combo-panel">
+    <div class="combo-panel-header">
+        <span class="combo-panel-title" id="comboPanelTitle">已选 0 个策略</span>
+        <button class="combo-clear-btn" onclick="clearSelection()">清空选择</button>
+    </div>
+    <div class="combo-weight-list" id="comboWeightList"></div>
+    <div class="combo-panel-footer">
+        <span class="combo-weight-total" id="comboWeightTotal">合计: <strong>0%</strong></span>
+        <button id="comboSubmitBtn" class="combo-submit-btn" onclick="computePortfolio()" disabled>
+            查看组合曲线 →
+        </button>
+    </div>
+</div>
+
+<!-- ── 全屏弹窗 ── -->
+<div id="comboModalOverlay" class="combo-modal-overlay" onclick="handleOverlayClick(event)">
+    <div class="combo-modal">
+        <div class="combo-modal-header">
+            <h3>策略组合净值曲线</h3>
+            <button class="combo-close-btn" onclick="closeComboModal()">×</button>
+        </div>
+        <div class="combo-modal-body">
+            <div class="combo-chart-area">
+                <div id="comboChart"></div>
+            </div>
+            <div class="combo-stats-area">
+                <div class="combo-section-title">组合配置</div>
+                <div id="comboConfigList"></div>
+                <div class="combo-section-title">组合指标</div>
+                <div id="comboIndicators"></div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    // 为每个账户渲染迷你净值曲线（使用真实数据）
+    // ── 迷你净值曲线（原有逻辑不变）──
     function initMiniCharts() {
         const accounts = {{ accounts|tojson }};
 
@@ -315,25 +724,14 @@
 
             const chart = echarts.init(chartDom);
 
-            // 使用真实的净值曲线数据
             let data = acc.nav_curve || [];
+            if (data.length === 0) data = [1.0];
 
-            // 如果没有数据，显示一条平线
-            if (data.length === 0) {
-                data = [1.0];
-            }
-
-            // 归一化：以第一个点为基准显示变化趋势
             const baseValue = data[0];
             const normalizedData = data.map(v => (v / baseValue));
 
             const option = {
-                grid: {
-                    left: 0,
-                    right: 0,
-                    top: 2,
-                    bottom: 2
-                },
+                grid: { left: 0, right: 0, top: 2, bottom: 2 },
                 xAxis: {
                     type: 'category',
                     show: false,
@@ -344,7 +742,6 @@
                     show: false,
                     scale: true,
                     min: function(value) {
-                        // 根据数据范围自适应，留一点边距
                         const range = value.max - value.min;
                         return Math.max(0, value.min - range * 0.1);
                     }
@@ -352,7 +749,7 @@
                 series: [{
                     type: 'line',
                     data: normalizedData,
-                    smooth: false,  // 使用折线而非平滑曲线，更真实
+                    smooth: false,
                     symbol: 'none',
                     lineStyle: {
                         width: 1.5,
@@ -363,21 +760,18 @@
                             type: 'linear',
                             x: 0, y: 0, x2: 0, y2: 1,
                             colorStops: [
-                                { offset: 0, color: acc.total_return >= 0 ? 'rgba(231, 76, 60, 0.3)' : 'rgba(39, 174, 96, 0.3)' },
-                                { offset: 1, color: acc.total_return >= 0 ? 'rgba(231, 76, 60, 0.05)' : 'rgba(39, 174, 96, 0.05)' }
+                                { offset: 0, color: acc.total_return >= 0 ? 'rgba(231,76,60,0.3)' : 'rgba(39,174,96,0.3)' },
+                                { offset: 1, color: acc.total_return >= 0 ? 'rgba(231,76,60,0.05)' : 'rgba(39,174,96,0.05)' }
                             ]
                         }
                     }
                 }],
-                tooltip: {
-                    show: false
-                }
+                tooltip: { show: false }
             };
 
             chart.setOption(option);
         });
 
-        // 响应式
         window.addEventListener('resize', () => {
             accounts.forEach(acc => {
                 const chartDom = document.getElementById('chart-' + acc.account_id);
@@ -392,26 +786,21 @@
     function sortAccounts() {
         const sortType = document.getElementById('sortSelect').value;
         const grid = document.getElementById('accountsGrid');
+        if (!grid) return;
         const cards = Array.from(grid.getElementsByClassName('account-card'));
 
         cards.sort((a, b) => {
             switch(sortType) {
-                case 'return_desc':
-                    return parseFloat(b.dataset.return) - parseFloat(a.dataset.return);
-                case 'return_asc':
-                    return parseFloat(a.dataset.return) - parseFloat(b.dataset.return);
-                case 'drawdown':
-                    return parseFloat(b.dataset.drawdown) - parseFloat(a.dataset.drawdown);
-                case 'newest':
-                    return b.dataset.created.localeCompare(a.dataset.created);
-                default:
-                    return 0;
+                case 'return_desc': return parseFloat(b.dataset.return) - parseFloat(a.dataset.return);
+                case 'return_asc':  return parseFloat(a.dataset.return) - parseFloat(b.dataset.return);
+                case 'drawdown':    return parseFloat(b.dataset.drawdown) - parseFloat(a.dataset.drawdown);
+                case 'newest':      return b.dataset.created.localeCompare(a.dataset.created);
+                default: return 0;
             }
         });
 
         cards.forEach(card => grid.appendChild(card));
 
-        // 排序后需要重新调整图表大小
         setTimeout(() => {
             cards.forEach(card => {
                 const chartDom = card.querySelector('.mini-chart');
@@ -423,7 +812,354 @@
         }, 50);
     }
 
-    // 初始化
     initMiniCharts();
+
+    // ════════════════════════════════════════════════
+    //  策略组合逻辑
+    // ════════════════════════════════════════════════
+
+    let comboMode = false;
+    // { account_id: { name, weight } }
+    let selectedAccounts = {};
+
+    // 子策略在图表中对应的颜色列表
+    const SUB_COLORS = ['#95a5a6', '#a29bfe', '#74b9ff', '#55efc4', '#fdcb6e', '#fd79a8'];
+
+    /** 切换选择模式 */
+    function toggleComboMode() {
+        comboMode = !comboMode;
+        const btn = document.getElementById('comboBtnToggle');
+        const cards = document.querySelectorAll('.account-card');
+        const panel = document.getElementById('comboPanel');
+
+        if (comboMode) {
+            btn.textContent = '✓ 选择中 · 取消';
+            btn.classList.add('active');
+            cards.forEach(c => c.classList.add('selectable'));
+            panel.classList.add('visible');
+            document.body.style.paddingBottom = '130px';
+        } else {
+            btn.textContent = '⊕ 策略组合';
+            btn.classList.remove('active');
+            cards.forEach(c => c.classList.remove('selectable', 'selected'));
+            selectedAccounts = {};
+            panel.classList.remove('visible');
+            document.body.style.paddingBottom = '';
+            updateComboPanel();
+        }
+    }
+
+    /** 账户卡片点击拦截（选择模式下阻止跳转） */
+    function handleCardClick(event, accountId, accountName) {
+        if (!comboMode) return; // 正常导航
+        event.preventDefault();
+        toggleAccountSelection(accountId, accountName);
+    }
+
+    /** 切换账户选中状态 */
+    function toggleAccountSelection(accountId, accountName) {
+        const card = document.getElementById('card-' + accountId);
+        if (selectedAccounts[accountId]) {
+            delete selectedAccounts[accountId];
+            card.classList.remove('selected');
+        } else {
+            selectedAccounts[accountId] = { name: accountName, weight: null };
+            card.classList.add('selected');
+        }
+        redistributeWeights();
+        updateComboPanel();
+    }
+
+    /** 等权重分配 */
+    function redistributeWeights() {
+        const ids = Object.keys(selectedAccounts);
+        if (ids.length === 0) return;
+        const base = Math.floor(100 / ids.length);
+        const remainder = 100 - base * ids.length;
+        ids.forEach((id, i) => {
+            selectedAccounts[id].weight = base + (i === ids.length - 1 ? remainder : 0);
+        });
+    }
+
+    /** 更新底部面板内容 */
+    function updateComboPanel() {
+        const ids = Object.keys(selectedAccounts);
+        document.getElementById('comboPanelTitle').textContent = `已选 ${ids.length} 个策略`;
+
+        const weightList = document.getElementById('comboWeightList');
+        weightList.innerHTML = '';
+
+        ids.forEach(id => {
+            const info = selectedAccounts[id];
+            const row = document.createElement('div');
+            row.className = 'combo-weight-row';
+            row.innerHTML = `
+                <span class="combo-weight-name" title="${info.name}">${info.name}</span>
+                <div class="combo-weight-input-wrap">
+                    <input type="number" class="combo-weight-input"
+                           value="${info.weight ?? 0}"
+                           min="0" max="999" step="1"
+                           oninput="onWeightInput('${id}', this.value)">
+                    <span>%</span>
+                </div>
+                <button class="combo-remove-btn" title="移除" onclick="removeAccount('${id}')">×</button>
+            `;
+            weightList.appendChild(row);
+        });
+
+        refreshWeightTotal();
+        document.getElementById('comboSubmitBtn').disabled = ids.length < 2;
+    }
+
+    /** 刷新合计显示 */
+    function refreshWeightTotal() {
+        const ids = Object.keys(selectedAccounts);
+        const total = ids.reduce((s, id) => s + (parseFloat(selectedAccounts[id].weight) || 0), 0);
+        const el = document.getElementById('comboWeightTotal');
+        const ok = Math.abs(total - 100) < 0.5;
+        if (ok) {
+            el.className = 'combo-weight-total ok';
+            el.innerHTML = `合计: <strong>${total.toFixed(0)}%</strong> ✓`;
+        } else {
+            el.className = 'combo-weight-total warn';
+            el.innerHTML = `合计: <strong>${total.toFixed(0)}%</strong><span class="warn-tag">将自动归一化</span>`;
+        }
+    }
+
+    /** 权重输入回调 */
+    function onWeightInput(accountId, value) {
+        selectedAccounts[accountId].weight = parseFloat(value) || 0;
+        refreshWeightTotal();
+    }
+
+    /** 移除单个账户 */
+    function removeAccount(accountId) {
+        delete selectedAccounts[accountId];
+        const card = document.getElementById('card-' + accountId);
+        if (card) card.classList.remove('selected');
+        redistributeWeights();
+        updateComboPanel();
+    }
+
+    /** 清空所有选择 */
+    function clearSelection() {
+        Object.keys(selectedAccounts).forEach(id => {
+            const card = document.getElementById('card-' + id);
+            if (card) card.classList.remove('selected');
+        });
+        selectedAccounts = {};
+        updateComboPanel();
+    }
+
+    /** 发起组合计算请求 */
+    async function computePortfolio() {
+        const ids = Object.keys(selectedAccounts);
+        if (ids.length < 2) return;
+
+        const accounts = ids.map(id => ({
+            account_id: id,
+            weight: parseFloat(selectedAccounts[id].weight) || 0
+        }));
+
+        const btn = document.getElementById('comboSubmitBtn');
+        btn.disabled = true;
+        btn.textContent = '计算中...';
+
+        try {
+            const resp = await fetch('/api/portfolio/nav', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accounts })
+            });
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                alert(data.error || '计算失败，请检查各策略是否有历史数据');
+                return;
+            }
+
+            openComboModal(data);
+        } catch (e) {
+            alert('请求失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '查看组合曲线 →';
+        }
+    }
+
+    /** 打开弹窗并渲染内容 */
+    function openComboModal(data) {
+        const overlay = document.getElementById('comboModalOverlay');
+        overlay.classList.add('open');
+        document.body.style.overflow = 'hidden';
+
+        // 渲染组合配置列表
+        const configList = document.getElementById('comboConfigList');
+        configList.innerHTML = data.accounts.map((acc, i) => `
+            <div class="combo-config-item">
+                <div class="combo-config-dot" style="background:${SUB_COLORS[i % SUB_COLORS.length]}"></div>
+                <span class="combo-config-name" title="${acc.name}">${acc.name}</span>
+                <div class="combo-config-bar-wrap">
+                    <div class="combo-config-bar-fill"
+                         style="width:${acc.weight}%;background:${SUB_COLORS[i % SUB_COLORS.length]}"></div>
+                </div>
+                <span class="combo-config-pct">${acc.weight}%</span>
+            </div>
+        `).join('');
+
+        // 渲染指标
+        const stats = data.stats;
+        const retClass = stats.total_return >= 0 ? 'positive' : 'negative';
+        const retSign  = stats.total_return >= 0 ? '+' : '';
+        document.getElementById('comboIndicators').innerHTML = `
+            <div class="indicator-row">
+                <span class="ind-label">有效区间</span>
+                <span class="ind-val" style="font-size:11px">${stats.start_date}<br>${stats.end_date}</span>
+            </div>
+            <div class="indicator-row">
+                <span class="ind-label">交易日</span>
+                <span class="ind-val">${stats.days} 天</span>
+            </div>
+            <div class="indicator-row">
+                <span class="ind-label">累计收益</span>
+                <span class="ind-val ${retClass}">${retSign}${(stats.total_return * 100).toFixed(2)}%</span>
+            </div>
+            <div class="indicator-row">
+                <span class="ind-label">最大回撤</span>
+                <span class="ind-val negative">-${(stats.max_drawdown * 100).toFixed(2)}%</span>
+            </div>
+            <div class="indicator-row">
+                <span class="ind-label">夏普比率</span>
+                <span class="ind-val">${stats.sharpe_ratio.toFixed(2)}</span>
+            </div>
+        `;
+
+        // 稍延迟确保 DOM 已渲染，再初始化 ECharts
+        setTimeout(() => renderPortfolioChart(data), 80);
+    }
+
+    /** 点击遮罩关闭弹窗 */
+    function handleOverlayClick(event) {
+        if (event.target === document.getElementById('comboModalOverlay')) {
+            closeComboModal();
+        }
+    }
+
+    /** 关闭弹窗 */
+    function closeComboModal() {
+        const overlay = document.getElementById('comboModalOverlay');
+        overlay.classList.remove('open');
+        document.body.style.overflow = '';
+
+        // 销毁图表实例，避免下次打开时尺寸异常
+        const chartDom = document.getElementById('comboChart');
+        const chart = echarts.getInstanceByDom(chartDom);
+        if (chart) chart.dispose();
+    }
+
+    /** 渲染组合净值图表 */
+    function renderPortfolioChart(data) {
+        const chartDom = document.getElementById('comboChart');
+        const chart = echarts.init(chartDom);
+        const dates = data.combined.dates;
+
+        const series = [];
+
+        // 各子策略曲线（细虚线，半透明）
+        data.accounts.forEach((acc, i) => {
+            series.push({
+                name: acc.name,
+                type: 'line',
+                data: acc.nav,
+                smooth: false,
+                symbol: 'none',
+                lineStyle: {
+                    width: 1,
+                    color: SUB_COLORS[i % SUB_COLORS.length],
+                    type: 'dashed',
+                    opacity: 0.75,
+                },
+            });
+        });
+
+        // 组合净值曲线（粗实线，主角）
+        series.push({
+            name: '组合净值',
+            type: 'line',
+            data: data.combined.nav,
+            smooth: false,
+            symbol: 'none',
+            lineStyle: { width: 2.5, color: '#667eea' },
+            areaStyle: {
+                color: {
+                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [
+                        { offset: 0, color: 'rgba(102,126,234,0.28)' },
+                        { offset: 1, color: 'rgba(102,126,234,0.02)' }
+                    ]
+                }
+            },
+            z: 10,
+        });
+
+        const option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'cross', crossStyle: { color: '#bbb' } },
+                formatter: function(params) {
+                    let html = `<div style="font-size:12px;line-height:1.8"><b>${params[0].axisValue}</b><br/>`;
+                    params.forEach(p => {
+                        const pct = ((p.value - 1) * 100).toFixed(2);
+                        const sign = pct >= 0 ? '+' : '';
+                        html += `${p.marker} ${p.seriesName}: <b>${sign}${pct}%</b><br/>`;
+                    });
+                    html += '</div>';
+                    return html;
+                }
+            },
+            legend: {
+                bottom: 4,
+                icon: 'circle',
+                itemWidth: 10,
+                itemHeight: 10,
+                textStyle: { fontSize: 12 },
+                data: [...data.accounts.map(a => a.name), '组合净值']
+            },
+            grid: { left: '3%', right: '2%', top: '4%', bottom: '18%', containLabel: true },
+            xAxis: {
+                type: 'category',
+                data: dates,
+                axisLabel: {
+                    formatter: val => val.slice(0, 7),
+                    interval: Math.max(0, Math.floor(dates.length / 7) - 1),
+                    fontSize: 11,
+                },
+                axisLine: { lineStyle: { color: '#eee' } },
+            },
+            yAxis: {
+                type: 'value',
+                scale: true,
+                axisLabel: {
+                    formatter: val => `${((val - 1) * 100).toFixed(0)}%`,
+                    fontSize: 11,
+                },
+                splitLine: { lineStyle: { color: '#f5f5f5' } },
+            },
+            dataZoom: [
+                { type: 'inside', start: 0, end: 100 },
+                { type: 'slider', bottom: '9%', height: 18, start: 0, end: 100 }
+            ],
+            series,
+        };
+
+        chart.setOption(option);
+
+        // 响应式
+        const onResize = () => chart.resize();
+        window.addEventListener('resize', onResize);
+        // 弹窗关闭后移除监听（通过一次性标记）
+        chart.on('finished', () => {});
+    }
 </script>
 {% endblock %}

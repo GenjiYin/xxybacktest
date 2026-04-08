@@ -1,6 +1,6 @@
 """API 路由（AJAX 调用）- 连接真实数据"""
 import os
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 import pandas as pd
 
 from xxybacktest.simulation.submitter import list_accounts, pause, resume, delete
@@ -159,3 +159,109 @@ def delete_account(account_id):
         return jsonify({'success': True, 'message': '账户已删除'})
     else:
         return jsonify({'success': False, 'message': '账户不存在或删除失败'}), 404
+
+
+@api_bp.route('/portfolio/nav', methods=['POST'])
+def portfolio_nav():
+    """计算策略组合净值曲线（加权合成）
+
+    请求体: {"accounts": [{"account_id": "sim_001", "weight": 40}, ...]}
+    返回:   combined NAV 序列 + 各账户对齐 NAV + 统计指标
+    """
+    data = request.get_json()
+    if not data or 'accounts' not in data:
+        return jsonify({'error': '请求格式错误'}), 400
+
+    accounts_input = data['accounts']
+    if len(accounts_input) < 2:
+        return jsonify({'error': '至少需要选择 2 个策略'}), 400
+
+    total_weight = sum(float(a.get('weight', 0)) for a in accounts_input)
+    if total_weight <= 0:
+        return jsonify({'error': '权重之和必须大于 0'}), 400
+
+    # 加载各账户净值数据
+    nav_data = {}
+    for acc in accounts_input:
+        account_id = acc['account_id']
+        nav_df = get_account_nav(account_id, data_path=DEFAULT_DATA_PATH)
+        if nav_df.empty:
+            continue
+        nav_df = nav_df.copy()
+        nav_df['date'] = nav_df['date'].astype(str).str[:10]
+        nav_data[account_id] = nav_df.set_index('date')
+
+    valid_ids = list(nav_data.keys())
+    if len(valid_ids) < 2:
+        return jsonify({'error': '有效数据不足，至少需要 2 个有历史数据的策略'}), 400
+
+    # 取日期交集
+    date_sets = [set(nav_data[aid].index) for aid in valid_ids]
+    common_dates = sorted(date_sets[0].intersection(*date_sets[1:]))
+
+    if len(common_dates) < 5:
+        return jsonify({'error': f'各策略公共交易日不足（仅 {len(common_dates)} 天），无法生成有效曲线'}), 400
+
+    # 加权合成每日收益率
+    combined_returns = pd.Series(0.0, index=common_dates)
+    for acc in accounts_input:
+        account_id = acc['account_id']
+        if account_id not in nav_data:
+            continue
+        w = float(acc.get('weight', 0)) / total_weight
+        daily_ret = nav_data[account_id].loc[common_dates, 'daily_return'].fillna(0)
+        combined_returns = combined_returns + w * daily_ret
+
+    # 累乘得到组合净值，归一化起点为 1.0
+    combined_nav = (1 + combined_returns).cumprod()
+    combined_nav = combined_nav / combined_nav.iloc[0]
+
+    # 统计指标
+    total_return = float(combined_nav.iloc[-1] - 1)
+    rolling_max = combined_nav.cummax()
+    drawdowns = (combined_nav - rolling_max) / rolling_max
+    max_drawdown = float(abs(drawdowns.min()))
+
+    if len(combined_returns) > 1 and combined_returns.std() > 0:
+        excess = combined_returns - 0.02 / 252
+        sharpe = float((excess.mean() / excess.std()) * (252 ** 0.5))
+    else:
+        sharpe = 0.0
+
+    # 各账户对齐后的净值（归一化到公共起点 1.0，用于图表叠加）
+    from xxybacktest.simulation.submitter import get_account as _get_acc
+    accounts_out = []
+    for acc in accounts_input:
+        account_id = acc['account_id']
+        if account_id not in nav_data:
+            continue
+        acc_nav_series = nav_data[account_id].loc[common_dates, 'nav']
+        base = float(acc_nav_series.iloc[0])
+        normalized = [round(float(v) / base, 4) for v in acc_nav_series]
+
+        acc_info = _get_acc(account_id, data_path=DEFAULT_DATA_PATH)
+        acc_name = acc_info['name'] if acc_info else account_id
+
+        actual_weight = round(float(acc.get('weight', 0)) / total_weight * 100, 1)
+        accounts_out.append({
+            'account_id': account_id,
+            'name': acc_name,
+            'weight': actual_weight,
+            'nav': normalized,
+        })
+
+    return jsonify({
+        'combined': {
+            'dates': common_dates,
+            'nav': [round(float(v), 4) for v in combined_nav.tolist()],
+        },
+        'accounts': accounts_out,
+        'stats': {
+            'total_return': round(total_return, 4),
+            'max_drawdown': round(max_drawdown, 4),
+            'sharpe_ratio': round(sharpe, 2),
+            'start_date': common_dates[0],
+            'end_date': common_dates[-1],
+            'days': len(common_dates),
+        }
+    })
