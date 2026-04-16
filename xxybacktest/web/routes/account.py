@@ -101,7 +101,9 @@ def account_detail(account_id):
             'annual_return': 0,
             'max_drawdown': 0,
             'sharpe_ratio': 0,
-            'current_nav': 1.0
+            'current_nav': 1.0,
+            'latest_daily_return': 0,
+            'latest_return_date': ''
         }
         nav_dates = []
         nav_values = []
