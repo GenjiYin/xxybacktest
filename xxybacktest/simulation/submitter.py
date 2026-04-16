@@ -11,6 +11,7 @@
 
 import inspect
 import os
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -266,6 +267,11 @@ def delete(account_id: str, data_path: str = "./data") -> bool:
                     )
             except Exception:
                 pass  # 表可能不存在
+
+        # 删除新格式的独立账户目录
+        account_dir = Path(account_data_path) / "simulation_results" / "accounts" / account_id
+        if account_dir.exists():
+            shutil.rmtree(account_dir)
 
         print(f"[模拟交易] 账户已删除: {account_id}")
         return True
