@@ -366,4 +366,6 @@ def get_account_orders(account_id: str, limit: int = 100, data_path: str = "./da
     if not os.path.exists(path):
         return pd.DataFrame(columns=cols)
     df = pd.read_parquet(path)
+    if 'price' not in df.columns:
+        df['price'] = 0.0
     return df.sort_values('date', ascending=False).head(limit).reset_index(drop=True)
