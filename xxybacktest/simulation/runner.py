@@ -136,11 +136,11 @@ def _save_results(account_id: str, context, data_path: str):
         df_orders['account_id'] = account_id
 
         # 确保列存在
-        for col in ['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']:
+        for col in ['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'price', 'cost']:
             if col not in df_orders.columns:
                 df_orders[col] = '' if col in ['date', 'instrument', 'name', 'side', 'status'] else 0.0
 
-        df_orders = df_orders[['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']]
+        df_orders = df_orders[['account_id', 'date', 'instrument', 'name', 'volume', 'side', 'status', 'price', 'cost']]
 
         df_orders.to_parquet(os.path.join(account_dir, "orders.parquet"), index=False)
 
@@ -362,7 +362,7 @@ def get_account_orders(account_id: str, limit: int = 100, data_path: str = "./da
         DataFrame: 订单信息
     """
     path = os.path.join(data_path, "simulation_results", "accounts", account_id, "orders.parquet")
-    cols = ['date', 'instrument', 'name', 'volume', 'side', 'status', 'cost']
+    cols = ['date', 'instrument', 'name', 'volume', 'side', 'status', 'price', 'cost']
     if not os.path.exists(path):
         return pd.DataFrame(columns=cols)
     df = pd.read_parquet(path)

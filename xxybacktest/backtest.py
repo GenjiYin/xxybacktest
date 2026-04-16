@@ -418,13 +418,14 @@ def run_backtest(
             "volume": o.amount,
             "side": "buy" if o.is_buy else "sell",
             "status": "filled" if o.status == 1 else "rejected",
+            "price": round(o.last_sale_price, 4) if o.last_sale_price else 0,
             "cost": round(o.cost + o.slip_value, 2),
         })
     if order_records:
         context.order = pd.DataFrame(order_records)
     else:
         context.order = pd.DataFrame(
-            columns=["date", "instrument", "name", "volume", "side", "status", "cost"]
+            columns=["date", "instrument", "name", "volume", "side", "status", "price", "cost"]
         )
 
     # pos DataFrame（取最后一天的持仓作为当前持仓）

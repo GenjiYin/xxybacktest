@@ -203,7 +203,7 @@ def account_detail(account_id):
             'name': row['name'],
             'direction': 'buy' if str(row['side']).upper() in ['BUY', '买入', '买'] else 'sell',
             'amount': int(abs(row['volume'])),
-            'price': round(row['cost'] / abs(row['volume']), 2) if row['volume'] != 0 else 0
+            'price': round(float(row['price']), 4) if 'price' in row and row['price'] else 0
         })
 
     # 计划交易：只显示当天的交易（如果有的话）
