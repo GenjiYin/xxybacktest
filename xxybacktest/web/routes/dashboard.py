@@ -51,6 +51,7 @@ def index():
             total_return = 0
             max_drawdown = 0
             latest_daily_return = 0
+            latest_return_date = ""
 
         created_at = acc.get('created_at', '')
         if hasattr(created_at, 'strftime'):
