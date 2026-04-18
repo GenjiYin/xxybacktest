@@ -92,39 +92,42 @@ class Data:
             WHERE d.date >= '{start_date}' AND d.date <= '{end_date}'
         """).df()
 
+        # 向量化预计算所有字段，避免逐行 Python 循环
+        df["date_str"] = df["date"].dt.strftime("%Y-%m-%d")
+        df["vwap"] = df["amount"] / (df["volume"] + 1)
+
+        # 转成 records 列表后按日期分组构建嵌套字典
+        records = df.to_dict("records")
         cache = {}
-        for date_val, group in df.groupby("date"):
-            date_str = date_val.strftime("%Y-%m-%d") if hasattr(date_val, 'strftime') else str(date_val)[:10]
-            day_dict = {}
-            for row in group.itertuples(index=False):
-                code = row.instrument
-                volume = row.volume
-                amount = row.amount
-                day_dict[code] = DailyInfo(
-                    ts_code=code,
-                    name=row.name,
-                    open=float(row.open),
-                    high=float(row.high),
-                    low=float(row.low),
-                    close=float(row.close),
-                    pre_close=float(row.pre_close),
-                    volume=int(volume),
-                    amount=float(amount),
-                    vwap=amount / (volume + 1),
-                    upLimit=float(row.upper_limit),
-                    downLimit=float(row.lower_limit),
-                    stop=int(row.suspended),
-                    st_status=int(row.st_status),
-                )
-            cache[date_str] = day_dict
+        for r in records:
+            date_str = r["date_str"]
+            code = r["instrument"]
+            if date_str not in cache:
+                cache[date_str] = {}
+            cache[date_str][code] = DailyInfo(
+                ts_code=code,
+                name=r["name"],
+                open=float(r["open"]),
+                high=float(r["high"]),
+                low=float(r["low"]),
+                close=float(r["close"]),
+                pre_close=float(r["pre_close"]),
+                volume=int(r["volume"]),
+                amount=float(r["amount"]),
+                vwap=float(r["vwap"]),
+                upLimit=float(r["upper_limit"]),
+                downLimit=float(r["lower_limit"]),
+                stop=int(r["suspended"]),
+                st_status=int(r["st_status"]),
+            )
 
         Data._daily_cache = cache
 
-        # 顺带填充名称备用表（只补充新 code，不覆盖已有记录）
-        for day_dict in cache.values():
-            for code, info in day_dict.items():
-                if info.name and code not in Data._instrument_names:
-                    Data._instrument_names[code] = info.name
+        # 顺带填充名称备用表（向量化，只补充新 code，不覆盖已有记录）
+        name_df = df[df["name"].notna() & (df["name"] != "")][["instrument", "name"]].drop_duplicates("instrument")
+        for _, row in name_df.iterrows():
+            if row["instrument"] not in Data._instrument_names:
+                Data._instrument_names[row["instrument"]] = row["name"]
 
     @staticmethod
     def preload_fund_daily(start_date, end_date):
@@ -146,49 +149,50 @@ class Data:
             WHERE date >= '{start_date}' AND date <= '{end_date}'
         """).df()
 
+        # F-B0: 向量化 NaN 填充
+        df["date_str"] = df["date"].dt.strftime("%Y-%m-%d")
+        df["open"]        = df["open"].fillna(0.0)
+        df["high"]        = df["high"].fillna(0.0)
+        df["low"]         = df["low"].fillna(0.0)
+        df["close"]       = df["close"].fillna(0.0)
+        df["pre_close"]   = df["pre_close"].fillna(0.0)
+        df["amount"]      = df["amount"].fillna(0.0)
+        df["upper_limit"] = df["upper_limit"].fillna(float('inf'))
+        df["lower_limit"] = df["lower_limit"].fillna(0.0)
+        df["vwap"]        = df["amount"] / (df["volume"] + 1)
+        df["stop"]        = (df["volume"] == 0).astype(int)
+
+        records = df.to_dict("records")
         cache = {}
-        for date_val, group in df.groupby("date"):
-            date_str = date_val.strftime("%Y-%m-%d") if hasattr(date_val, 'strftime') else str(date_val)[:10]
-            day_dict = {}
-            for row in group.itertuples(index=False):
-                code = row.instrument
-                volume = row.volume
-                amount = row.amount
-                # F-B0: 停牌时 OHLC 为 NaN，用 0.0 兜底避免 float(NaN) 传播
-                _open = float(row.open) if row.open == row.open else 0.0
-                _high = float(row.high) if row.high == row.high else 0.0
-                _low = float(row.low) if row.low == row.low else 0.0
-                _close = float(row.close) if row.close == row.close else 0.0
-                _pre_close = float(row.pre_close) if row.pre_close == row.pre_close else 0.0
-                _amount = float(amount) if amount == amount else 0.0
-                # F-B0: 涨跌停 NULL 约 1%，用 inf/0 兜底避免 rule_limit 误拦
-                _up = float(row.upper_limit) if row.upper_limit == row.upper_limit else float('inf')
-                _down = float(row.lower_limit) if row.lower_limit == row.lower_limit else 0.0
-                day_dict[code] = DailyInfo(
-                    ts_code=code,
-                    name=row.name,
-                    open=_open,
-                    high=_high,
-                    low=_low,
-                    close=_close,
-                    pre_close=_pre_close,
-                    volume=int(volume),
-                    amount=_amount,
-                    vwap=_amount / (volume + 1),
-                    upLimit=_up,
-                    downLimit=_down,
-                    stop=1 if volume == 0 else 0,
-                    st_status=0,
-                )
-            cache[date_str] = day_dict
+        for r in records:
+            date_str = r["date_str"]
+            code = r["instrument"]
+            if date_str not in cache:
+                cache[date_str] = {}
+            cache[date_str][code] = DailyInfo(
+                ts_code=code,
+                name=r["name"],
+                open=float(r["open"]),
+                high=float(r["high"]),
+                low=float(r["low"]),
+                close=float(r["close"]),
+                pre_close=float(r["pre_close"]),
+                volume=int(r["volume"]),
+                amount=float(r["amount"]),
+                vwap=float(r["vwap"]),
+                upLimit=float(r["upper_limit"]),
+                downLimit=float(r["lower_limit"]),
+                stop=int(r["stop"]),
+                st_status=0,
+            )
 
         Data._daily_cache = cache
 
-        # 顺带填充名称备用表（只补充新 code，不覆盖已有记录）
-        for day_dict in cache.values():
-            for code, info in day_dict.items():
-                if info.name and code not in Data._instrument_names:
-                    Data._instrument_names[code] = info.name
+        # 顺带填充名称备用表（向量化，只补充新 code，不覆盖已有记录）
+        name_df = df[df["name"].notna() & (df["name"] != "")][["instrument", "name"]].drop_duplicates("instrument")
+        for _, row in name_df.iterrows():
+            if row["instrument"] not in Data._instrument_names:
+                Data._instrument_names[row["instrument"]] = row["name"]
 
         # 二次补充：从 daily_fund 近15天数据补充名称，
         # 解决部分基金在回测区间内 name 字段为空/NULL 的情况。
