@@ -244,7 +244,7 @@ def order_target_value(security, value, context):
     if price is None or price == 0:
         return None
 
-    target_amount = int(value / price)
+    target_amount = int(value / (price * 1.1))
 
     # 修复原项目 Bug：security 不在 positions 中且 value=0 时不应 KeyError
     current_amount = 0
