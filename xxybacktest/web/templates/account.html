@@ -555,10 +555,17 @@
 
     let navChart = null;
 
+    function round4(v) { return Math.round(v * 10000) / 10000; }
+
     function initNavChart(benchNav, benchName) {
         if (!navChart) {
             navChart = echarts.init(document.getElementById('navChart'));
         }
+
+        // 超额净值 = 策略净值 / 基准净值（基准起点归一）
+        const excessNav = (benchNav && benchNav.length === strategyNav.length)
+            ? strategyNav.map((v, i) => benchNav[i] > 0 ? round4(v / benchNav[i]) : null)
+            : [];
 
         const option = {
             tooltip: {
@@ -566,13 +573,15 @@
                 formatter: function(params) {
                     let html = params[0].axisValue + '<br/>';
                     params.forEach(p => {
-                        html += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+                        if (p.value !== null && p.value !== undefined) {
+                            html += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+                        }
                     });
                     return html;
                 }
             },
             legend: {
-                data: ['策略净值', benchName || '基准净值'],
+                data: ['策略净值', benchName || '基准净值', '超额净值'],
                 top: 0,
                 right: 0
             },
@@ -590,18 +599,29 @@
                 axisLine: { lineStyle: { color: '#ddd' } },
                 axisLabel: { color: '#666', fontSize: 11 }
             },
-            yAxis: {
-                type: 'value',
-                scale: true,
-                axisLine: { show: false },
-                axisTick: { show: false },
-                splitLine: { lineStyle: { color: '#f0f0f0' } },
-                axisLabel: { color: '#666', fontSize: 11 }
-            },
+            yAxis: [
+                {
+                    type: 'value',
+                    scale: true,
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    splitLine: { lineStyle: { color: '#f0f0f0' } },
+                    axisLabel: { color: '#666', fontSize: 11 }
+                },
+                {
+                    type: 'value',
+                    scale: true,
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    splitLine: { show: false },
+                    axisLabel: { color: '#d4a017', fontSize: 11 }
+                }
+            ],
             series: [
                 {
                     name: '策略净值',
                     type: 'line',
+                    yAxisIndex: 0,
                     data: strategyNav,
                     smooth: true,
                     symbol: 'none',
@@ -620,10 +640,20 @@
                 {
                     name: benchName || '基准净值',
                     type: 'line',
+                    yAxisIndex: 0,
                     data: benchNav,
                     smooth: true,
                     symbol: 'none',
                     lineStyle: { color: '#999', width: 1.5, type: 'dashed' }
+                },
+                {
+                    name: '超额净值',
+                    type: 'line',
+                    yAxisIndex: 1,
+                    data: excessNav,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { color: '#d4a017', width: 1.5, type: 'dashed' }
                 }
             ]
         };
