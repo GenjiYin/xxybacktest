@@ -336,6 +336,33 @@
         color: #ff4d4f;
     }
 
+    .benchmark-tabs {
+        display: flex;
+        gap: 4px;
+    }
+
+    .bench-btn {
+        padding: 2px 10px;
+        border: 1px solid #d9d9d9;
+        border-radius: 4px;
+        background: #fff;
+        color: #666;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .bench-btn:hover {
+        border-color: #667eea;
+        color: #667eea;
+    }
+
+    .bench-btn.active {
+        background: #667eea;
+        border-color: #667eea;
+        color: #fff;
+    }
+
     @media (max-width: 1200px) {
         .indicators-grid {
             grid-template-columns: repeat(3, 1fr);
@@ -407,12 +434,20 @@
 <div class="chart-section">
     <div class="chart-header">
         <h3>净值走势</h3>
-        <span class="status-text {{ account.status }}">
-            {% if account.status == 'running' %}运行中
-            {% elif account.status == 'paused' %}已暂停
-            {% else %}已停止
-            {% endif %}
-        </span>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px; color:#999;">基准：</span>
+            <div class="benchmark-tabs" id="benchmarkTabs">
+                <button class="bench-btn active" data-code="000300.SH">沪深300</button>
+                <button class="bench-btn" data-code="000905.SH">中证500</button>
+                <button class="bench-btn" data-code="000852.SH">中证1000</button>
+            </div>
+            <span class="status-text {{ account.status }}">
+                {% if account.status == 'running' %}运行中
+                {% elif account.status == 'paused' %}已暂停
+                {% else %}已停止
+                {% endif %}
+            </span>
+        </div>
     </div>
     <div id="navChart" class="chart-container"></div>
 </div>
@@ -513,12 +548,16 @@
 {% block extra_js %}
 <script>
     // 净值曲线图表
-    function initNavChart() {
-        const chart = echarts.init(document.getElementById('navChart'));
+    const dates = {{ nav_dates|tojson }};
+    const strategyNav = {{ nav_values|tojson }};
+    const initialBenchmarkNav = {{ benchmark_values|tojson }};
 
-        const dates = {{ nav_dates|tojson }};
-        const strategyNav = {{ nav_values|tojson }};
-        const benchmarkNav = {{ benchmark_values|tojson }};
+    let navChart = null;
+
+    function initNavChart(benchNav, benchName) {
+        if (!navChart) {
+            navChart = echarts.init(document.getElementById('navChart'));
+        }
 
         const option = {
             tooltip: {
@@ -532,7 +571,7 @@
                 }
             },
             legend: {
-                data: ['策略净值', '基准净值'],
+                data: ['策略净值', benchName || '基准净值'],
                 top: 0,
                 right: 0
             },
@@ -578,9 +617,9 @@
                     }
                 },
                 {
-                    name: '基准净值',
+                    name: benchName || '基准净值',
                     type: 'line',
-                    data: benchmarkNav,
+                    data: benchNav,
                     smooth: true,
                     symbol: 'none',
                     lineStyle: { color: '#999', width: 1.5, type: 'dashed' }
@@ -588,10 +627,39 @@
             ]
         };
 
-        chart.setOption(option);
-
-        window.addEventListener('resize', () => chart.resize());
+        navChart.setOption(option, true);
+        window.addEventListener('resize', () => navChart.resize());
     }
+
+    function switchBenchmark(code, btn) {
+        // 更新按钮状态
+        document.querySelectorAll('.bench-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        btn.textContent = '加载中…';
+
+        fetch(`/api/accounts/{{ account.account_id }}/benchmark_nav?code=${code}`)
+            .then(r => r.json())
+            .then(data => {
+                btn.textContent = data.name;
+                initNavChart(data.nav, data.name);
+            })
+            .catch(() => {
+                btn.textContent = btn.dataset.label;
+            });
+    }
+
+    // 初始化：用后端渲染的默认基准数据（沪深300）
+    initNavChart(initialBenchmarkNav, '沪深300');
+
+    // 绑定切换按钮
+    const BENCH_LABELS = { '000300.SH': '沪深300', '000905.SH': '中证500', '000852.SH': '中证1000' };
+    document.querySelectorAll('.bench-btn').forEach(btn => {
+        btn.dataset.label = btn.textContent;
+        btn.addEventListener('click', function() {
+            if (this.classList.contains('active')) return;
+            switchBenchmark(this.dataset.code, this);
+        });
+    });
 
     // 成交记录分页
     const allOrders = {{ orders|tojson }};
@@ -674,7 +742,6 @@
     }
 
     // 初始化
-    initNavChart();
     renderOrders();
 </script>
 {% endblock %}

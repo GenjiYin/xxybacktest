@@ -1,10 +1,11 @@
 """账户详情页面路由 - 连接真实数据"""
 import os
-import numpy as np
+import pandas as pd
 from flask import Blueprint, render_template, abort
 
 from xxybacktest.simulation.submitter import get_account
 from xxybacktest.simulation.runner import get_account_nav, get_account_positions, get_account_orders
+from xxybacktest.data import Data
 
 account_bp = Blueprint('account', __name__)
 
@@ -157,13 +158,30 @@ def account_detail(account_id):
         nav_dates = nav_df['date'].tolist()
         nav_values = nav_df['nav'].tolist()
 
-        np.random.seed(42)
-        bench = 1.0
+        # 用真实沪深300数据计算基准累计净值
+        benchmark_code = account.get('benchmark', '000300.SH')
+        if '.' not in benchmark_code:
+            benchmark_code = benchmark_code + '.SH'
+        start_date = nav_df['date'].iloc[0]
+        end_date = nav_df['date'].iloc[-1]
         benchmark_values = []
-        for i in range(len(nav_values)):
-            daily_ret = (nav_values[i] / nav_values[i-1] - 1) if i > 0 else 0
-            bench *= (1 + daily_ret * 0.5 + np.random.normal(0, 0.005))
-            benchmark_values.append(round(bench, 4))
+        try:
+            bench_df = Data.get_index_daily(benchmark_code, start_date, end_date)
+            if not bench_df.empty:
+                bench_df = bench_df.sort_values('trade_date').reset_index(drop=True)
+                bench_df['trade_date'] = bench_df['trade_date'].astype(str).str[:10]
+                # 以策略日期为基准对齐，缺失日期用前值填充
+                bench_map = dict(zip(bench_df['trade_date'], bench_df['pct_chg'] / 100))
+                bench = 1.0
+                for d in nav_dates:
+                    daily_ret = bench_map.get(d, 0.0)
+                    bench *= (1 + daily_ret)
+                    benchmark_values.append(round(bench, 4))
+        except Exception:
+            pass
+        # 若获取失败则留空（前端会跳过绘制基准线）
+        if not benchmark_values:
+            benchmark_values = []
 
     # 先加载成交记录，从中建 instrument→name 字典（成交时名称一定有值）
     orders_df = get_account_orders(account_id, limit=10000, data_path=DEFAULT_DATA_PATH)
