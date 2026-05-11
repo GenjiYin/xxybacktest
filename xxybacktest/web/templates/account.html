@@ -551,6 +551,7 @@
     const dates = {{ nav_dates|tojson }};
     const strategyNav = {{ nav_values|tojson }};
     const initialBenchmarkNav = {{ benchmark_values|tojson }};
+    const allBenchmarkNav = {{ all_benchmark_values|tojson }};
 
     let navChart = null;
 
@@ -632,20 +633,11 @@
     }
 
     function switchBenchmark(code, btn) {
-        // 更新按钮状态
         document.querySelectorAll('.bench-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        btn.textContent = '加载中…';
-
-        fetch(`/api/accounts/{{ account.account_id }}/benchmark_nav?code=${code}`)
-            .then(r => r.json())
-            .then(data => {
-                btn.textContent = data.name;
-                initNavChart(data.nav, data.name);
-            })
-            .catch(() => {
-                btn.textContent = btn.dataset.label;
-            });
+        const name = btn.dataset.label;
+        const nav = allBenchmarkNav[code] || [];
+        initNavChart(nav, name);
     }
 
     // 初始化：用后端渲染的默认基准数据（沪深300）

@@ -5,7 +5,6 @@ import pandas as pd
 
 from xxybacktest.simulation.submitter import list_accounts, pause, resume, delete
 from xxybacktest.simulation.runner import get_account_nav, get_account_positions, get_account_orders
-from xxybacktest.data import Data
 
 api_bp = Blueprint('api', __name__)
 
@@ -130,55 +129,6 @@ def get_orders(account_id):
         })
 
     return jsonify(orders)
-
-
-@api_bp.route('/accounts/<account_id>/benchmark_nav')
-def get_benchmark_nav(account_id):
-    """获取指定基准指数的净值曲线，与账户交易日对齐
-
-    参数: ?code=000300.SH  （支持 000300.SH / 000905.SH / 000852.SH）
-    返回: {"dates": [...], "nav": [...], "name": "沪深300"}
-    """
-    ALLOWED = {
-        '000300.SH': '沪深300',
-        '000905.SH': '中证500',
-        '000852.SH': '中证1000',
-    }
-    code = request.args.get('code', '000300.SH')
-    if code not in ALLOWED:
-        return jsonify({'error': f'不支持的基准代码: {code}，可选: {list(ALLOWED.keys())}'}), 400
-
-    nav_df = get_account_nav(account_id, data_path=DEFAULT_DATA_PATH)
-    if nav_df.empty:
-        return jsonify({'dates': [], 'nav': [], 'name': ALLOWED[code]})
-
-    nav_df['date'] = nav_df['date'].astype(str).str[:10]
-    start_date = nav_df['date'].iloc[0]
-    end_date = nav_df['date'].iloc[-1]
-    nav_dates = nav_df['date'].tolist()
-
-    try:
-        bench_df = Data.get_index_daily(code, start_date, end_date)
-    except Exception as e:
-        return jsonify({'error': f'获取指数数据失败: {e}'}), 500
-
-    if bench_df.empty:
-        return jsonify({'error': f'数据库中无 {code} 的行情数据'}), 404
-
-    bench_df['trade_date'] = bench_df['trade_date'].astype(str).str[:10]
-    bench_map = dict(zip(bench_df['trade_date'], bench_df['pct_chg'] / 100))
-
-    bench = 1.0
-    bench_nav = []
-    for d in nav_dates:
-        bench *= (1 + bench_map.get(d, 0.0))
-        bench_nav.append(round(bench, 4))
-
-    return jsonify({
-        'dates': nav_dates,
-        'nav': bench_nav,
-        'name': ALLOWED[code],
-    })
 
 
 @api_bp.route('/accounts/<account_id>/pause', methods=['POST'])

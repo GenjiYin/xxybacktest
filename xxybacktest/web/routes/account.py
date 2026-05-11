@@ -2,10 +2,10 @@
 import os
 import pandas as pd
 from flask import Blueprint, render_template, abort
+from xxydb import xxydb as _xxydb
 
 from xxybacktest.simulation.submitter import get_account
 from xxybacktest.simulation.runner import get_account_nav, get_account_positions, get_account_orders
-from xxybacktest.data import Data
 
 account_bp = Blueprint('account', __name__)
 
@@ -109,6 +109,7 @@ def account_detail(account_id):
         nav_dates = []
         nav_values = []
         benchmark_values = []
+        all_benchmark_values = {}
     else:
         first_nav = nav_df['nav'].iloc[0]
         last_nav = nav_df['nav'].iloc[-1]
@@ -158,30 +159,41 @@ def account_detail(account_id):
         nav_dates = nav_df['date'].tolist()
         nav_values = nav_df['nav'].tolist()
 
-        # 用真实沪深300数据计算基准累计净值
-        benchmark_code = account.get('benchmark', '000300.SH')
-        if '.' not in benchmark_code:
-            benchmark_code = benchmark_code + '.SH'
+        # 一次性查三个指数，前端切换时直接读 JS 变量，无需再发请求
+        BENCHMARKS = {
+            '000300.SH': '沪深300',
+            '000905.SH': '中证500',
+            '000852.SH': '中证1000',
+        }
         start_date = nav_df['date'].iloc[0]
         end_date = nav_df['date'].iloc[-1]
-        benchmark_values = []
+        codes_str = "', '".join(BENCHMARKS.keys())
+        all_benchmark_values = {}
         try:
-            bench_df = Data.get_index_daily(benchmark_code, start_date, end_date)
-            if not bench_df.empty:
-                bench_df = bench_df.sort_values('trade_date').reset_index(drop=True)
-                bench_df['trade_date'] = bench_df['trade_date'].astype(str).str[:10]
-                # 以策略日期为基准对齐，缺失日期用前值填充
-                bench_map = dict(zip(bench_df['trade_date'], bench_df['pct_chg'] / 100))
+            db = _xxydb(path=DEFAULT_DATA_PATH)
+            raw_df = db.query(f"""
+                SELECT instrument, date AS trade_date, change_ratio * 100 AS pct_chg
+                FROM index_bar
+                WHERE instrument IN ('{codes_str}')
+                  AND date >= '{start_date}'
+                  AND date <= '{end_date}'
+                ORDER BY instrument, date
+            """).df()
+            raw_df['trade_date'] = raw_df['trade_date'].astype(str).str[:10]
+            for code in BENCHMARKS:
+                sub = raw_df[raw_df['instrument'] == code]
+                bench_map = dict(zip(sub['trade_date'], sub['pct_chg'] / 100))
                 bench = 1.0
+                nav_list = []
                 for d in nav_dates:
-                    daily_ret = bench_map.get(d, 0.0)
-                    bench *= (1 + daily_ret)
-                    benchmark_values.append(round(bench, 4))
+                    bench *= (1 + bench_map.get(d, 0.0))
+                    nav_list.append(round(bench, 4))
+                all_benchmark_values[code] = nav_list
         except Exception:
             pass
-        # 若获取失败则留空（前端会跳过绘制基准线）
-        if not benchmark_values:
-            benchmark_values = []
+
+        # 默认展示沪深300，若查询失败则为空列表
+        benchmark_values = all_benchmark_values.get('000300.SH', [])
 
     # 先加载成交记录，从中建 instrument→name 字典（成交时名称一定有值）
     orders_df = get_account_orders(account_id, limit=10000, data_path=DEFAULT_DATA_PATH)
@@ -244,6 +256,7 @@ def account_detail(account_id):
         nav_dates=nav_dates,
         nav_values=nav_values,
         benchmark_values=benchmark_values,
+        all_benchmark_values=all_benchmark_values,
         positions=positions,
         orders=all_orders,
         total_orders=len(all_orders),
