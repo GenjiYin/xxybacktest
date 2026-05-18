@@ -1,0 +1,718 @@
+{% extends "base.html" %}
+
+{% block title %}API 文档 - 模拟交易系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .doc-layout {
+        display: block;
+        position: relative;
+    }
+
+    .doc-sidebar {
+        position: fixed;
+        top: 100px;
+        right: 40px;
+        width: 240px;
+        background: white;
+        border-radius: 10px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        max-height: 80vh;
+        overflow-y: auto;
+        z-index: 100;
+    }
+
+    .doc-sidebar h3 {
+        font-size: 13px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #f0f0f0;
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 1;
+    }
+
+    .doc-sidebar ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .doc-sidebar li {
+        margin-bottom: 2px;
+    }
+
+    .doc-sidebar a {
+        display: block;
+        padding: 5px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #666;
+        text-decoration: none;
+        transition: all 0.15s;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .doc-sidebar a:hover {
+        background: #f5f7fa;
+        color: #667eea;
+    }
+
+    .doc-sidebar a.toc-h2 {
+        padding-left: 16px;
+    }
+
+    .doc-sidebar a.toc-h3 {
+        padding-left: 32px;
+    }
+
+    .doc-sidebar a.toc-h4 {
+        padding-left: 48px;
+    }
+
+    .doc-sidebar a.active {
+        color: #ff6b6b;
+        font-weight: 600;
+        background: #fff5f5;
+    }
+
+    .doc-content {
+        background: white;
+        border-radius: 8px;
+        padding: 32px 36px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        line-height: 1.7;
+        color: #333;
+        margin-right: 280px;
+    }
+
+    .doc-content h2 {
+        font-size: 22px;
+        font-weight: 600;
+        color: #222;
+        margin: 36px 0 16px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #667eea;
+    }
+
+    .doc-content h2:first-child {
+        margin-top: 0;
+    }
+
+    .doc-content h3 {
+        font-size: 17px;
+        font-weight: 600;
+        color: #333;
+        margin: 28px 0 12px;
+    }
+
+    .doc-content h4 {
+        font-size: 15px;
+        font-weight: 600;
+        color: #444;
+        margin: 20px 0 10px;
+    }
+
+    .doc-content p {
+        margin: 10px 0;
+        color: #444;
+    }
+
+    .doc-content code {
+        background: #f5f7fa;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: 'SF Mono', Monaco, Consolas, monospace;
+        font-size: 13px;
+        color: #c7254e;
+    }
+
+    .doc-content pre {
+        background: #282c34;
+        color: #abb2bf;
+        padding: 16px 20px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 13px;
+        line-height: 1.6;
+        margin: 14px 0;
+    }
+
+    .doc-content pre code {
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        font-size: inherit;
+    }
+
+    .doc-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 14px 0;
+        font-size: 13px;
+    }
+
+    .doc-content th,
+    .doc-content td {
+        border: 1px solid #e8e8e8;
+        padding: 10px 14px;
+        text-align: left;
+    }
+
+    .doc-content th {
+        background: #f8f9fa;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .doc-content tr:nth-child(even) {
+        background: #fafbfc;
+    }
+
+    .doc-content ul, .doc-content ol {
+        margin: 10px 0;
+        padding-left: 24px;
+    }
+
+    .doc-content li {
+        margin: 6px 0;
+    }
+
+    .doc-content .highlight-box {
+        background: #f0f5ff;
+        border-left: 4px solid #667eea;
+        padding: 14px 18px;
+        border-radius: 0 6px 6px 0;
+        margin: 14px 0;
+    }
+
+    .doc-content .warn-box {
+        background: #fff7e6;
+        border-left: 4px solid #faad14;
+        padding: 14px 18px;
+        border-radius: 0 6px 6px 0;
+        margin: 14px 0;
+    }
+
+    .doc-content .endpoint {
+        display: inline-block;
+        background: #e6f7e6;
+        color: #52c41a;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-right: 6px;
+    }
+
+    .doc-content .endpoint.post {
+        background: #fff1f0;
+        color: #ff4d4f;
+    }
+
+    .doc-content .endpoint.delete {
+        background: #fff1f0;
+        color: #ff4d4f;
+    }
+
+    @media (max-width: 1100px) {
+        .doc-sidebar {
+            display: none;
+        }
+        .doc-content {
+            margin-right: 0;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="doc-layout">
+    <article class="doc-content">
+        <h2 id="overview">系统概述</h2>
+        <p><strong>xxybacktest</strong> 是一套量化策略从研发到每日自动运行的完整闭环。用户写一次策略代码，注册为模拟账户后，系统每天自动重跑回测、更新净值曲线、生成当日交易信号。打开 Web 界面就能看到"今天该买什么卖什么"，直接跟单操作。</p>
+
+        <h3>核心功能</h3>
+        <ul>
+            <li><strong>策略回测</strong>：基于历史数据验证策略表现</li>
+            <li><strong>模拟账户</strong>：将策略注册为每日自动运行的模拟交易账户</li>
+            <li><strong>定时任务</strong>：灵活调度数据更新、策略重跑等任意脚本</li>
+            <li><strong>Web 可视化</strong>：策略净值、持仓、信号一目了然</li>
+        </ul>
+
+        <h3>架构简图</h3>
+        <pre><code>xxy-sim 启动
+└── Flask (port 5000)
+    ├── /              ← 账户列表
+    ├── /account/&lt;id&gt;  ← 账户详情（净值曲线、持仓、信号）
+    ├── /tasks         ← 定时任务管理
+    └── /docs          ← API 文档（本页）
+
+APScheduler（后台）
+    ├── builtin_run_simulation  ← 内置：每日模拟交易重跑
+    ├── task_数据更新            ← 用户注册：数据更新脚本
+    └── task_xxx                 ← 用户注册：任意脚本</code></pre>
+
+        <h2 id="quickstart">快速开始</h2>
+
+        <h3>安装</h3>
+        <pre><code># 在 conda 环境中安装
+conda activate vnpy
+cd D:/Desktop/github汇总/xxybacktest
+pip install -e .</code></pre>
+
+        <h3>启动服务</h3>
+        <pre><code># 方式一：使用快捷脚本
+python run_simulation.py --data ./data --time 22:00
+
+# 方式二：使用安装后的命令
+xxy-sim --data ./data --time 22:00</code></pre>
+
+        <table>
+            <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+            <tr><td><code>--data</code></td><td>数据目录路径</td><td><code>./data</code></td></tr>
+            <tr><td><code>--time</code></td><td>每日模拟交易触发时间（HH:MM）</td><td><code>22:00</code></td></tr>
+        </table>
+
+        <div class="highlight-box">
+            启动成功后，打开浏览器访问 <code>http://localhost:5000</code>
+        </div>
+
+        <h2 id="backtest">回测用法</h2>
+
+        <h3>编写策略代码</h3>
+        <p>策略由两个函数组成：<code>initialize</code> 和 <code>handle_data</code>。</p>
+
+        <pre><code>from xxybacktest.simulation import submit
+
+def initialize(context):
+    """初始化函数，策略注册时执行一次"""
+    # 加载历史数据、设置参数等
+    pass
+
+def handle_data(context):
+    """每日调仓函数，每天收盘后执行一次"""
+    # 选股、调仓等逻辑
+    # 示例：全仓买入
+    context.order_target_percent("000001.SZ", 1.0)</code></pre>
+
+        <h3>运行单次回测</h3>
+        <pre><code>from xxybacktest.backtest import run_backtest
+
+context = run_backtest(
+    initialize=initialize,
+    handle_data=handle_data,
+    start_date="2024-01-01",
+    end_date="2024-12-31",
+    capital=100000,          # 初始资金 10 万
+    data_path="./data",      # xxydb 数据目录
+    asset_type="stock",      # 'stock' 或 'fund'
+    benchmark="000001.SH",   # 基准指数
+    plot=True,               # 是否展示回测曲线
+)</code></pre>
+
+        <table>
+            <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+            <tr><td><code>initialize</code></td><td>初始化函数 <code>callable(context)</code></td><td>必填</td></tr>
+            <tr><td><code>handle_data</code></td><td>策略主函数 <code>callable(context)</code>，如果为 None 需在 initialize 中自行注册 run_daily</td><td>None</td></tr>
+            <tr><td><code>start_date</code></td><td>回测起始日 'YYYY-MM-DD'</td><td>必填</td></tr>
+            <tr><td><code>end_date</code></td><td>回测结束日 'YYYY-MM-DD'</td><td>必填</td></tr>
+            <tr><td><code>capital</code></td><td>初始资金</td><td>1000000</td></tr>
+            <tr><td><code>data_path</code></td><td>xxydb 数据目录</td><td>./data</td></tr>
+            <tr><td><code>asset_type</code></td><td>资产类型：'stock'（股票）或 'fund'（基金）</td><td>stock</td></tr>
+            <tr><td><code>benchmark</code></td><td>基准指数代码</td><td>000001.SH</td></tr>
+            <tr><td><code>plot</code></td><td>是否在 Notebook 中展示回测曲线和绩效指标</td><td>True</td></tr>
+        </table>
+
+        <h3>回测返回的 context 对象</h3>
+        <p><code>run_backtest</code> 返回的 <code>context</code> 包含完整的回测结果：</p>
+
+        <table>
+            <tr><th>属性</th><th>说明</th></tr>
+            <tr><td><code>context.order</code></td><td>订单 DataFrame（date, instrument, name, volume, side, status, price, cost）</td></tr>
+            <tr><td><code>context.pos</code></td><td>持仓 DataFrame（date, instrument, name, volume, ratio, return, close, avg_cost）</td></tr>
+            <tr><td><code>context.portfolio</code></td><td>组合资金状态（cash, total_value, positions_value, positions）</td></tr>
+            <tr><td><code>context.performance</code></td><td>绩效指标（returns, turnover, win_ratio, trade_num 等）</td></tr>
+            <tr><td><code>context.logs.order_list</code></td><td>原始订单对象列表</td></tr>
+            <tr><td><code>context.logs.trade_list</code></td><td>成交订单对象列表</td></tr>
+        </table>
+
+        <h2 id="strategy-api">策略编程接口</h2>
+
+        <h3>Context 对象核心属性</h3>
+        <table>
+            <tr><th>属性</th><th>说明</th></tr>
+            <tr><td><code>context.current_dt</code></td><td>当前日期时间（datetime 对象）</td></tr>
+            <tr><td><code>context.previous_date</code></td><td>上一个交易日日期字符串 'YYYY-MM-DD'</td></tr>
+            <tr><td><code>context.portfolio.cash</code></td><td>可用现金</td></tr>
+            <tr><td><code>context.portfolio.total_value</code></td><td>总资产（现金 + 持仓市值）</td></tr>
+            <tr><td><code>context.portfolio.positions</code></td><td>持仓字典 {code: Position}</td></tr>
+            <tr><td><code>context.trade.benchmark</code></td><td>基准指数代码</td></tr>
+            <tr><td><code>context.trade.asset_type</code></td><td>资产类型 'stock' / 'fund'</td></tr>
+            <tr><td><code>context.g</code></td><td>用户全局变量字典（可存放策略状态）</td></tr>
+        </table>
+
+        <h3>下单函数</h3>
+        <p>所有下单函数均已绑定到 context，在策略中直接通过 <code>context.xxx()</code> 调用。</p>
+
+        <table>
+            <tr><th>函数</th><th>说明</th></tr>
+            <tr>
+                <td><code>context.order(security, amount)</code></td>
+                <td>按数量下单。amount > 0 买入，amount < 0 卖出，0 不下单</td>
+            </tr>
+            <tr>
+                <td><code>context.order_buy(security, amount)</code></td>
+                <td>买入指定数量（股）</td>
+            </tr>
+            <tr>
+                <td><code>context.order_sell(security, amount)</code></td>
+                <td>卖出指定数量（股）</td>
+            </tr>
+            <tr>
+                <td><code>context.order_value(security, value)</code></td>
+                <td>按金额下单。value > 0 买入对应金额，value < 0 卖出对应金额</td>
+            </tr>
+            <tr>
+                <td><code>context.order_target_value(security, value)</code></td>
+                <td>调仓至目标市值。value=0 表示清仓</td>
+            </tr>
+            <tr>
+                <td><code>context.order_target_percent(security, percent)</code></td>
+                <td>按总资产百分比调仓。percent 为 0.0~1.0 小数，如 0.1 表示 10%</td>
+            </tr>
+            <tr>
+                <td><code>context.inout_cash(amount)</code></td>
+                <td>出入金。正数入金，负数出金</td>
+            </tr>
+        </table>
+
+        <h3>数据接口</h3>
+        <pre><code># 获取历史行情
+df = context.history(instruments, fields=None, bar_count=1)
+
+# 参数说明
+#   instruments: 股票代码列表，如 ["000001.SZ", "000002.SZ"]
+#   fields:      字段列表，如 ["close", "volume"]，None 返回全部
+#   bar_count:   回溯天数</code></pre>
+
+        <h3>注册每日事件</h3>
+        <pre><code>def initialize(context):
+    # 注册 strategy 函数每天 9:30 执行
+    context.run_daily(strategy, "9:30")
+
+def strategy(context):
+    # 每日策略逻辑
+    print(context.current_dt)</code></pre>
+
+        <h2 id="simulation">模拟交易用法</h2>
+
+        <h3>注册模拟账户</h3>
+        <pre><code>from xxybacktest.simulation import submit
+
+account_id = submit(
+    name="我的策略",              # 账户名称
+    initialize=initialize,      # 初始化函数
+    handle_data=handle_data,    # 调仓函数
+    capital=100000,             # 初始资金（10万）
+    start_date="2024-01-01",    # 策略开始日期
+    data_path="./data",         # 数据目录
+    asset_type="stock",         # 资产类型
+    benchmark="000001.SH",      # 基准指数
+    run_now=True,               # 注册后立即跑一次回测
+)
+
+print(f"账户已注册: {account_id}")</code></pre>
+
+        <table>
+            <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+            <tr><td><code>name</code></td><td>账户名称（展示用）</td><td>必填</td></tr>
+            <tr><td><code>initialize</code></td><td>初始化函数</td><td>必填</td></tr>
+            <tr><td><code>handle_data</code></td><td>策略主函数（可选）</td><td>None</td></tr>
+            <tr><td><code>capital</code></td><td>初始资金</td><td>100000</td></tr>
+            <tr><td><code>start_date</code></td><td>策略开始日期 'YYYY-MM-DD'，默认今天</td><td>None</td></tr>
+            <tr><td><code>data_path</code></td><td>数据目录</td><td>./data</td></tr>
+            <tr><td><code>asset_type</code></td><td>'stock' 或 'fund'</td><td>stock</td></tr>
+            <tr><td><code>benchmark</code></td><td>基准指数代码</td><td>000001.SH</td></tr>
+            <tr><td><code>run_now</code></td><td>注册后立即运行回测</td><td>False</td></tr>
+        </table>
+
+        <h3>账户管理</h3>
+        <pre><code>from xxybacktest.simulation import (
+    list_accounts, get_account,
+    pause, resume, delete,
+    run_single, run_all,
+    get_account_nav, get_account_positions, get_account_orders,
+)
+
+# 列出所有账户
+accounts = list_accounts(data_path="./data")
+
+# 只列运行中账户
+running = list_accounts(status='running', data_path="./data")
+
+# 查看单个账户详情
+info = get_account(account_id, data_path="./data")
+
+# 暂停账户（暂停后不再参与每日重跑）
+pause(account_id, data_path="./data")
+
+# 恢复账户
+resume(account_id, data_path="./data")
+
+# 删除账户及其所有历史数据
+delete(account_id, data_path="./data")
+
+# 手动重跑单个账户
+result = run_single(account_id, end_date="2024-12-31", data_path="./data")
+
+# 手动重跑所有运行中账户
+results = run_all(end_date="2024-12-31", data_path="./data")
+
+# 查询净值、持仓、订单
+nav_df = get_account_nav(account_id, data_path="./data")
+pos_df = get_account_positions(account_id, date="2024-12-31", data_path="./data")
+order_df = get_account_orders(account_id, limit=100, data_path="./data")</code></pre>
+
+        <h3>模拟交易存储结构</h3>
+        <p>每个账户的结果独立存储，避免多进程并行写入冲突：</p>
+        <pre><code>data/simulation_results/accounts/
+  sim_001/daily_values.parquet   # 每日净值
+  sim_001/positions.parquet      # 持仓快照
+  sim_001/orders.parquet         # 成交记录</code></pre>
+
+        <h2 id="scheduler">定时任务</h2>
+        <p>系统使用 APScheduler 管理定时任务，支持<strong>热注册、热删除</strong>，无需重启服务。</p>
+
+        <h3>内置任务：每日模拟交易</h3>
+        <p>启动 <code>xxy-sim</code> 时自动注册，通过 <code>--time</code> 参数控制触发时间：</p>
+        <pre><code>xxy-sim --data ./data --time 22:00   # 每晚 22:00 自动重跑所有运行中账户
+xxy-sim --data ./data --time 15:30   # 收盘后 15:30 执行</code></pre>
+
+        <h3>注册自定义定时任务</h3>
+        <pre><code>from xxybacktest.simulation import schedule_task
+
+# 方式一：每天固定时间
+tid = schedule_task(
+    name="数据更新",
+    script="./data_renew.py",   # 脚本的绝对或相对路径
+    time="17:30",                # 每天 17:30 执行
+    data_path="./data",
+)
+
+# 方式二：cron 表达式
+tid = schedule_task(
+    name="季报数据",
+    script="./update_quarterly.py",
+    cron="0 10 1 1,4,7,10 *",    # 每季度第一天 10:00
+    data_path="./data",
+)</code></pre>
+
+        <table>
+            <tr><th>参数</th><th>说明</th></tr>
+            <tr><td><code>name</code></td><td>任务名称（展示用）</td></tr>
+            <tr><td><code>script</code></td><td>Python 脚本路径</td></tr>
+            <tr><td><code>time</code></td><td>每天固定时间，格式 HH:MM，与 cron 二选一</td></tr>
+            <tr><td><code>cron</code></td><td>标准 5 段 cron 表达式（分 时 日 月 周）</td></tr>
+            <tr><td><code>data_path</code></td><td>数据目录路径</td></tr>
+        </table>
+
+        <div class="warn-box">
+            <strong>注意：</strong><code>time</code> 和 <code>cron</code> 只能指定一个。相同 <code>name + script + cron</code> 的任务不会重复注册。
+        </div>
+
+        <h3>cron 表达式参考</h3>
+        <table>
+            <tr><th>需求</th><th>cron 表达式</th></tr>
+            <tr><td>每天 22:00</td><td><code>0 22 * * *</code></td></tr>
+            <tr><td>每天 17:30</td><td><code>30 17 * * *</code></td></tr>
+            <tr><td>工作日 9:00</td><td><code>0 9 * * 1-5</code></td></tr>
+            <tr><td>每周一 10:00</td><td><code>0 10 * * 1</code></td></tr>
+            <tr><td>每月 1 日 9:00</td><td><code>0 9 1 * *</code></td></tr>
+            <tr><td>每季度首日 10:00</td><td><code>0 10 1 1,4,7,10 *</code></td></tr>
+        </table>
+
+        <h2 id="web">Web 界面</h2>
+
+        <h3>账户列表页（/）</h3>
+        <ul>
+            <li>展示所有模拟账户的<strong>累计收益率、当日收益、最大回撤</strong></li>
+            <li>点击账户卡片进入详情页</li>
+            <li>支持<strong>策略组合</strong>：多选账户后按权重合成组合净值曲线</li>
+        </ul>
+
+        <h3>账户详情页（/account/&lt;id&gt;）</h3>
+        <ul>
+            <li><strong>净值走势</strong>：策略净值 + 基准指数 + 超额净值三条曲线</li>
+            <li><strong>计划交易</strong>：最新调仓信号（今天该买什么/卖什么）</li>
+            <li><strong>当前持仓</strong>：代码、名称、数量、成本、市值、占比、累计收益</li>
+            <li><strong>历史成交</strong>：带分页的完整交易记录</li>
+            <li><strong>操作按钮</strong>：暂停 / 恢复 / 删除账户</li>
+        </ul>
+
+        <h3>任务管理页（/tasks）</h3>
+        <ul>
+            <li>查看所有定时任务的<strong>名称、cron 表达式、下次执行时间、上次状态</strong></li>
+            <li><strong>手动触发</strong>：立即执行一次任务</li>
+            <li><strong>查看日志</strong>：弹出窗口实时展示任务执行日志（3 秒轮询刷新）</li>
+            <li><strong>删除任务</strong>：用户注册的任务可删除，内置任务不可删除</li>
+        </ul>
+
+        <h2 id="http-api">HTTP API</h2>
+
+        <h3>账户数据接口</h3>
+        <table>
+            <tr><th>接口</th><th>方法</th><th>说明</th></tr>
+            <tr>
+                <td><code>/api/accounts</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取所有账户列表（含最新净值、累计收益、当日收益）</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;/nav</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取账户净值曲线数据</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;/positions</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取账户当前持仓</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;/orders</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取账户订单记录</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;/pause</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>暂停账户</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;/resume</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>恢复账户</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;</code></td>
+                <td><span class="endpoint delete">DELETE</span></td>
+                <td>删除账户</td>
+            </tr>
+            <tr>
+                <td><code>/api/portfolio/nav</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>策略组合净值曲线计算。请求体：<code>{"accounts": [{"account_id":"sim_001","weight":40},...]}</code></td>
+            </tr>
+        </table>
+
+        <h3>任务管理接口</h3>
+        <table>
+            <tr><th>接口</th><th>方法</th><th>说明</th></tr>
+            <tr>
+                <td><code>/tasks/api/list</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取所有定时任务状态</td>
+            </tr>
+            <tr>
+                <td><code>/tasks/api/trigger/&lt;task_id&gt;</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>手动触发一次任务</td>
+            </tr>
+            <tr>
+                <td><code>/tasks/api/delete/&lt;task_id&gt;</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>删除用户任务</td>
+            </tr>
+            <tr>
+                <td><code>/tasks/api/log/&lt;task_id&gt;</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取任务最近一次日志</td>
+            </tr>
+        </table>
+
+        <h2 id="faq">常见问题</h2>
+
+        <h4>Q：Flask 的 debug 模式可以开吗？</h4>
+        <p>A：不可以。APScheduler 的 <code>BackgroundScheduler</code> 在 <code>debug=True</code> 时会被 reloader 启动两次，导致调度器重复运行。<code>main.py</code> 已固定 <code>debug=False</code>。</p>
+
+        <h4>Q：手动触发任务时提示"任务正在执行中"怎么办？</h4>
+        <p>A：同一任务设置了 <code>max_instances=1</code>，如果上次还没跑完，手动触发会被拒绝。请等待上次执行完成，或查看日志确认进度。</p>
+
+        <h4>Q：Windows 下并行执行有问题吗？</h4>
+        <p>A：Windows 使用 spawn 模式启动子进程，功能正常但启动开销比 Linux fork 大。如果账户数很少（&lt;4），并行收益不明显。</p>
+
+        <h4>Q：日志在哪里看？</h4>
+        <p>A：任务日志存储在 <code>data/simulation_results/task_logs/&lt;task_id&gt;.log</code>，可以通过 Web 界面的"日志"按钮实时查看。</p>
+
+        <h4>Q：数据存储格式变更后旧数据怎么办？</h4>
+        <p>A：最简单的方式是<strong>让所有账户重跑一次</strong>，新文件会自动生成。存储路径为 <code>data/simulation_results/accounts/&lt;account_id&gt;/</code>。</p>
+    </article>
+
+    <aside class="doc-sidebar">
+        <h3>目录</h3>
+        <ul id="toc-list"></ul>
+    </aside>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var content = document.querySelector('.doc-content');
+    var tocList = document.getElementById('toc-list');
+    if (!content || !tocList) return;
+
+    var headings = content.querySelectorAll('h2, h3, h4');
+    headings.forEach(function(heading, index) {
+        if (!heading.id) {
+            heading.id = 'toc-heading-' + index;
+        }
+    });
+
+    tocList.innerHTML = '';
+    headings.forEach(function(heading) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '#' + heading.id;
+        a.textContent = heading.textContent;
+        a.className = 'toc-' + heading.tagName.toLowerCase();
+        a.addEventListener('click', function(e) {
+            e.preventDefault();
+            var target = document.getElementById(heading.id);
+            if (target) {
+                var offset = 80;
+                var top = target.getBoundingClientRect().top + window.pageYOffset - offset;
+                window.scrollTo({ top: top, behavior: 'smooth' });
+            }
+        });
+        li.appendChild(a);
+        tocList.appendChild(li);
+    });
+
+    var tocLinks = tocList.querySelectorAll('a');
+    function highlightTOC() {
+        var scrollPos = window.scrollY + 120;
+        var current = null;
+        for (var i = headings.length - 1; i >= 0; i--) {
+            var h = headings[i];
+            if (h.offsetTop <= scrollPos) {
+                current = h.id;
+                break;
+            }
+        }
+        tocLinks.forEach(function(link) {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+        });
+    }
+
+    window.addEventListener('scroll', highlightTOC);
+    highlightTOC();
+});
+</script>
+{% endblock %}

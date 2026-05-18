@@ -19,6 +19,7 @@ dependencies = [
     "itables>=1.0",
     "flask>=2.3",
     "gunicorn>=21.0",
+    "apscheduler>=3.10",
 ]
 
 [project.scripts]

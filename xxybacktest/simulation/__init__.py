@@ -20,6 +20,7 @@
 
 from .submitter import submit, pause, resume, delete, list_accounts, get_account
 from .runner import run_all, run_single, get_account_nav, get_account_positions, get_account_orders
+from .task_store import schedule_task
 from .db_utils import close_all
 
 __all__ = [
@@ -27,6 +28,8 @@ __all__ = [
     "submit", "pause", "resume", "delete", "list_accounts", "get_account",
     # runner
     "run_all", "run_single", "get_account_nav", "get_account_positions", "get_account_orders",
+    # scheduler
+    "schedule_task",
     # utils
     "close_all",
 ]

@@ -1,0 +1,580 @@
+{% extends "base.html" %}
+
+{% block title %}定时任务管理 - 模拟交易系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+    }
+
+    .page-header h2 {
+        font-size: 20px;
+        font-weight: 500;
+        color: #333;
+    }
+
+    .task-card {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .task-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+
+    .task-table th,
+    .task-table td {
+        padding: 14px 16px;
+        text-align: left;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .task-table th {
+        color: #999;
+        font-weight: 500;
+        background: #fafafa;
+        font-size: 13px;
+    }
+
+    .task-table tr:hover {
+        background: #fafafa;
+    }
+
+    .task-table td {
+        color: #333;
+    }
+
+    .task-name {
+        font-weight: 500;
+    }
+
+    .task-name .builtin-tag {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        background: #e6f7e6;
+        color: #52c41a;
+    }
+
+    .cron-code {
+        font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+        font-size: 13px;
+        color: #666;
+        background: #f5f7fa;
+        padding: 4px 10px;
+        border-radius: 4px;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .status-badge.success {
+        background: #e6f7e6;
+        color: #52c41a;
+    }
+
+    .status-badge.failed,
+    .status-badge.error {
+        background: #fff1f0;
+        color: #ff4d4f;
+    }
+
+    .status-badge.running {
+        background: #e6f4ff;
+        color: #1890ff;
+    }
+
+    .status-badge.unknown,
+    .status-badge.- {
+        background: #f5f5f5;
+        color: #999;
+    }
+
+    .action-btns {
+        display: flex;
+        gap: 8px;
+    }
+
+    .btn-sm {
+        padding: 5px 12px;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-trigger {
+        background: #667eea;
+        color: white;
+    }
+
+    .btn-trigger:hover {
+        background: #5a6fd6;
+    }
+
+    .btn-trigger:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-log {
+        background: #f5f7fa;
+        color: #666;
+        border: 1px solid #e8e8e8;
+    }
+
+    .btn-log:hover {
+        border-color: #667eea;
+        color: #667eea;
+    }
+
+    .btn-delete {
+        background: #fff1f0;
+        color: #ff4d4f;
+        border: 1px solid #ffccc7;
+    }
+
+    .btn-delete:hover {
+        background: #ff4d4f;
+        color: white;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+    }
+
+    .empty-state h3 {
+        font-size: 16px;
+        margin-bottom: 8px;
+        color: #666;
+    }
+
+    /* 日志弹窗 */
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.52);
+        z-index: 200;
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-overlay.open {
+        display: flex;
+    }
+
+    .modal-box {
+        background: white;
+        border-radius: 10px;
+        width: 90%;
+        max-width: 900px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+        overflow: hidden;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+        border-bottom: 1px solid #f0f0f0;
+        flex-shrink: 0;
+    }
+
+    .modal-header h3 {
+        font-size: 16px;
+        font-weight: 500;
+        color: #333;
+    }
+
+    .modal-header .modal-meta {
+        font-size: 12px;
+        color: #999;
+        margin-left: 12px;
+    }
+
+    .modal-close-btn {
+        background: none;
+        border: none;
+        font-size: 22px;
+        color: #aaa;
+        cursor: pointer;
+        padding: 0 4px;
+        line-height: 1;
+    }
+
+    .modal-close-btn:hover {
+        color: #333;
+    }
+
+    .modal-body {
+        flex: 1;
+        overflow: auto;
+        padding: 16px 24px;
+        background: #1e1e1e;
+    }
+
+    .log-content {
+        font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #d4d4d4;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .log-content .log-empty {
+        color: #666;
+        font-style: italic;
+    }
+
+    .log-polling-hint {
+        font-size: 11px;
+        color: #666;
+        margin-top: 8px;
+        text-align: center;
+    }
+
+    /* 刷新指示器 */
+    .refresh-indicator {
+        font-size: 12px;
+        color: #999;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .refresh-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #52c41a;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.3; }
+        100% { opacity: 1; }
+    }
+
+    .next-run-time {
+        color: #666;
+        font-size: 13px;
+    }
+
+    .next-run-time .past {
+        color: #ff4d4f;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>定时任务管理</h2>
+    </div>
+    <div class="refresh-indicator">
+        <span class="refresh-dot"></span>
+        <span>每 3 秒自动刷新</span>
+    </div>
+</div>
+
+<div class="task-card">
+    <table class="task-table">
+        <thead>
+            <tr>
+                <th style="width: 20%;">任务名称</th>
+                <th style="width: 18%;">触发时间 (cron)</th>
+                <th style="width: 18%;">下次执行</th>
+                <th style="width: 12%;">上次状态</th>
+                <th style="width: 32%;">操作</th>
+            </tr>
+        </thead>
+        <tbody id="taskTableBody">
+            <tr>
+                <td colspan="5" class="empty-state">加载中...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- 日志弹窗 -->
+<div id="logModal" class="modal-overlay" onclick="handleOverlayClick(event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <div style="display:flex;align-items:center;">
+                <h3 id="logModalTitle">任务日志</h3>
+                <span id="logModalMeta" class="modal-meta"></span>
+            </div>
+            <button class="modal-close-btn" onclick="closeLogModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <pre class="log-content" id="logContent">加载中...</pre>
+            <div class="log-polling-hint" id="logPollingHint">日志实时刷新中...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentLogTaskId = null;
+    let listInterval = null;
+    let logInterval = null;
+
+    // 状态映射
+    const STATUS_MAP = {
+        'success': { text: '成功', class: 'success' },
+        'failed':  { text: '失败', class: 'failed' },
+        'error':   { text: '错误', class: 'error' },
+        'running': { text: '执行中', class: 'running' },
+        '-':       { text: '未执行', class: '-' },
+    };
+
+    async function fetchTaskList() {
+        try {
+            const resp = await fetch('/tasks/api/list');
+            const tasks = await resp.json();
+            renderTaskList(tasks);
+        } catch (e) {
+            console.error('获取任务列表失败:', e);
+        }
+    }
+
+    function renderTaskList(tasks) {
+        const tbody = document.getElementById('taskTableBody');
+        if (!tasks || tasks.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="empty-state">
+                        <h3>暂无定时任务</h3>
+                        <p>使用 schedule_task() 注册您的第一个任务</p>
+                    </td>
+                </tr>
+            `;
+            updatePolling([]);
+            return;
+        }
+
+        tbody.innerHTML = tasks.map(task => {
+            const st = STATUS_MAP[task.last_status] || { text: task.last_status || '未执行', class: '-' };
+            const builtinTag = task.is_builtin ? '<span class="builtin-tag">内置</span>' : '';
+            const nextRun = task.next_run_time
+                ? formatTime(task.next_run_time)
+                : '<span style="color:#999">-</span>';
+
+            let actions = `
+                <button class="btn-sm btn-trigger" onclick="triggerTask('${task.task_id}', this)">触发</button>
+                <button class="btn-sm btn-log" onclick="openLogModal('${task.task_id}', '${task.name}')">日志</button>
+            `;
+            if (!task.is_builtin) {
+                actions += `<button class="btn-sm btn-delete" onclick="deleteTask('${task.task_id}')">删除</button>`;
+            }
+
+            return `
+                <tr>
+                    <td>
+                        <span class="task-name">${task.name}${builtinTag}</span>
+                    </td>
+                    <td><code class="cron-code">${task.cron}</code></td>
+                    <td class="next-run-time">${nextRun}</td>
+                    <td><span class="status-badge ${st.class}">${st.text}</span></td>
+                    <td><div class="action-btns">${actions}</div></td>
+                </tr>
+            `;
+        }).join('');
+
+        updatePolling(tasks);
+    }
+
+    // 智能轮询：有执行中的任务才刷新
+    function updatePolling(tasks) {
+        const hasRunning = tasks.some(t => t.last_status === 'running');
+        if (hasRunning) {
+            startPolling();
+        } else {
+            stopPolling();
+        }
+    }
+
+    function startPolling() {
+        if (listInterval) return;
+        listInterval = setInterval(fetchTaskList, 3000);
+        setRefreshIndicator(true);
+    }
+
+    function stopPolling() {
+        if (listInterval) {
+            clearInterval(listInterval);
+            listInterval = null;
+        }
+        setRefreshIndicator(false);
+    }
+
+    function setRefreshIndicator(isPolling) {
+        const dot = document.querySelector('.refresh-dot');
+        const text = document.querySelector('.refresh-indicator span:last-child');
+        if (isPolling) {
+            dot.style.animation = 'pulse 2s infinite';
+            dot.style.background = '#52c41a';
+            text.textContent = '实时刷新中';
+        } else {
+            dot.style.animation = 'none';
+            dot.style.background = '#999';
+            text.textContent = '任务均已完成';
+        }
+    }
+
+    function formatTime(dtStr) {
+        // 后端返回 "2026-05-15 22:00:00" 格式
+        if (!dtStr) return '-';
+        const dt = new Date(dtStr.replace(' ', 'T'));
+        const now = new Date();
+        const isToday = dt.toDateString() === now.toDateString();
+        const timePart = dtStr.slice(11, 16);
+        if (isToday) {
+            return `今天 ${timePart}`;
+        }
+        return `${dtStr.slice(0, 10)} ${timePart}`;
+    }
+
+    async function triggerTask(taskId, btn) {
+        const originalText = btn.textContent;
+        const originalBg = btn.style.background;
+        btn.disabled = true;
+        btn.textContent = '触发中...';
+        try {
+            const resp = await fetch(`/tasks/api/trigger/${taskId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                btn.textContent = '已触发';
+                btn.style.background = '#52c41a';
+                fetchTaskList();
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = originalBg;
+                    btn.disabled = false;
+                }, 1500);
+                return;
+            } else {
+                btn.textContent = data.error || '失败';
+                btn.style.background = '#ff4d4f';
+                console.error('触发失败:', data.error);
+            }
+        } catch (e) {
+            btn.textContent = '失败';
+            btn.style.background = '#ff4d4f';
+            console.error('请求失败:', e.message);
+        }
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = originalBg;
+            btn.disabled = false;
+        }, 2000);
+    }
+
+    async function deleteTask(taskId) {
+        if (!confirm('确定要删除该任务吗？此操作不可恢复！')) return;
+        try {
+            const resp = await fetch(`/tasks/api/delete/${taskId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                fetchTaskList();
+            } else {
+                console.error('删除失败:', data.error);
+            }
+        } catch (e) {
+            console.error('请求失败:', e.message);
+        }
+    }
+
+    // ===== 日志弹窗 =====
+
+    async function fetchLog(taskId) {
+        try {
+            const resp = await fetch(`/tasks/api/log/${taskId}`);
+            const data = await resp.json();
+            renderLog(data);
+        } catch (e) {
+            document.getElementById('logContent').textContent = '[获取日志失败]';
+        }
+    }
+
+    function renderLog(data) {
+        const contentEl = document.getElementById('logContent');
+        const metaEl = document.getElementById('logModalMeta');
+
+        if (!data.content || data.content.trim() === '') {
+            contentEl.innerHTML = '<span class="log-empty">暂无日志</span>';
+        } else {
+            contentEl.textContent = data.content;
+        }
+
+        const statusText = data.status !== '-' ? `上次执行: ${data.status}` : '未执行';
+        metaEl.textContent = `${statusText} · ${data.executed_at || '-'}`;
+    }
+
+    function openLogModal(taskId, taskName) {
+        currentLogTaskId = taskId;
+        document.getElementById('logModalTitle').textContent = `${taskName} - 执行日志`;
+        document.getElementById('logModal').classList.add('open');
+        document.body.style.overflow = 'hidden';
+        fetchLog(taskId);
+
+        // 开始轮询日志
+        if (logInterval) clearInterval(logInterval);
+        logInterval = setInterval(() => {
+            if (currentLogTaskId) fetchLog(currentLogTaskId);
+        }, 3000);
+    }
+
+    function closeLogModal() {
+        document.getElementById('logModal').classList.remove('open');
+        document.body.style.overflow = '';
+        currentLogTaskId = null;
+        if (logInterval) {
+            clearInterval(logInterval);
+            logInterval = null;
+        }
+    }
+
+    function handleOverlayClick(event) {
+        if (event.target === document.getElementById('logModal')) {
+            closeLogModal();
+        }
+    }
+
+    // 初始化：只获取一次列表，由 renderTaskList 内部根据 running 状态自动控制轮询
+    fetchTaskList();
+
+    // 页面卸载时清理定时器
+    window.addEventListener('beforeunload', () => {
+        if (listInterval) clearInterval(listInterval);
+        if (logInterval) clearInterval(logInterval);
+    });
+</script>
+{% endblock %}

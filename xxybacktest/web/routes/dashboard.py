@@ -11,6 +11,12 @@ dashboard_bp = Blueprint('dashboard', __name__)
 DEFAULT_DATA_PATH = os.environ.get('XXY_DATA_PATH', './data')
 
 
+@dashboard_bp.route('/docs')
+def docs():
+    """API 文档页面"""
+    return render_template('docs.html')
+
+
 @dashboard_bp.route('/')
 def index():
     """账户列表首页 - 从 xxydb 读取真实数据"""
