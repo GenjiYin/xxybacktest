@@ -75,6 +75,17 @@ def start_scheduler(data_path: str):
         scheduler.start()
         print("[scheduler] APScheduler 已启动")
 
+        # 每 30 秒自动同步 JSON 中的用户任务到当前 scheduler
+        # 解决跨进程调用 schedule_task() 时热注册到错误 scheduler 的问题
+        scheduler.add_job(
+            sync_user_jobs,
+            "interval",
+            seconds=30,
+            args=[data_path],
+            id="__sync_user_jobs",
+            replace_existing=True,
+        )
+
 
 def add_script_job(task_id: str, name: str, script: str, cron: str, data_path: str):
     """
