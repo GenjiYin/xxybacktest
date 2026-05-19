@@ -3,7 +3,7 @@ import os
 
 from flask import Blueprint, jsonify, render_template
 
-from xxybacktest.simulation.scheduler import get_all_jobs, trigger_job
+from xxybacktest.simulation.scheduler import get_all_jobs, get_task_history, trigger_job
 from xxybacktest.simulation.task_store import remove_task
 
 tasks_bp = Blueprint("tasks", __name__)
@@ -18,6 +18,12 @@ def _data_path() -> str:
 @tasks_bp.route("/tasks")
 def tasks_page():
     return render_template("tasks.html")
+
+
+@tasks_bp.route("/tasks/log/<task_id>")
+def task_log_page(task_id):
+    """日志详情页：左侧时间标签 + 右侧日志内容"""
+    return render_template("log.html", task_id=task_id)
 
 
 @tasks_bp.route("/tasks/api/list")
@@ -80,3 +86,13 @@ def tasks_api_log(task_id):
         "status": status.get("status", "-"),
         "executed_at": status.get("executed_at", "-"),
     })
+
+
+@tasks_bp.route("/tasks/api/history/<task_id>")
+def tasks_api_history(task_id):
+    """返回任务的历史运行记录列表。"""
+    try:
+        history = get_task_history(task_id, _data_path())
+        return jsonify({"success": True, "history": history})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

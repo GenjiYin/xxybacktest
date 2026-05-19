@@ -168,96 +168,6 @@
         color: #666;
     }
 
-    /* 日志弹窗 */
-    .modal-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.52);
-        z-index: 200;
-        display: none;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .modal-overlay.open {
-        display: flex;
-    }
-
-    .modal-box {
-        background: white;
-        border-radius: 10px;
-        width: 90%;
-        max-width: 900px;
-        max-height: 80vh;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 24px 64px rgba(0,0,0,0.22);
-        overflow: hidden;
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 16px 24px;
-        border-bottom: 1px solid #f0f0f0;
-        flex-shrink: 0;
-    }
-
-    .modal-header h3 {
-        font-size: 16px;
-        font-weight: 500;
-        color: #333;
-    }
-
-    .modal-header .modal-meta {
-        font-size: 12px;
-        color: #999;
-        margin-left: 12px;
-    }
-
-    .modal-close-btn {
-        background: none;
-        border: none;
-        font-size: 22px;
-        color: #aaa;
-        cursor: pointer;
-        padding: 0 4px;
-        line-height: 1;
-    }
-
-    .modal-close-btn:hover {
-        color: #333;
-    }
-
-    .modal-body {
-        flex: 1;
-        overflow: auto;
-        padding: 16px 24px;
-        background: #1e1e1e;
-    }
-
-    .log-content {
-        font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-        font-size: 13px;
-        line-height: 1.7;
-        color: #d4d4d4;
-        white-space: pre-wrap;
-        word-break: break-all;
-    }
-
-    .log-content .log-empty {
-        color: #666;
-        font-style: italic;
-    }
-
-    .log-polling-hint {
-        font-size: 11px;
-        color: #666;
-        margin-top: 8px;
-        text-align: center;
-    }
-
     /* 刷新指示器 */
     .refresh-indicator {
         font-size: 12px;
@@ -322,29 +232,11 @@
     </table>
 </div>
 
-<!-- 日志弹窗 -->
-<div id="logModal" class="modal-overlay" onclick="handleOverlayClick(event)">
-    <div class="modal-box">
-        <div class="modal-header">
-            <div style="display:flex;align-items:center;">
-                <h3 id="logModalTitle">任务日志</h3>
-                <span id="logModalMeta" class="modal-meta"></span>
-            </div>
-            <button class="modal-close-btn" onclick="closeLogModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            <pre class="log-content" id="logContent">加载中...</pre>
-            <div class="log-polling-hint" id="logPollingHint">日志实时刷新中...</div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    let currentLogTaskId = null;
     let listInterval = null;
-    let logInterval = null;
 
     // 状态映射
     const STATUS_MAP = {
@@ -389,7 +281,7 @@
 
             let actions = `
                 <button class="btn-sm btn-trigger" onclick="triggerTask('${task.task_id}', this)">触发</button>
-                <button class="btn-sm btn-log" onclick="openLogModal('${task.task_id}', '${task.name}')">日志</button>
+                <a href="/tasks/log/${task.task_id}" class="btn-sm btn-log">日志</a>
             `;
             if (!task.is_builtin) {
                 actions += `<button class="btn-sm btn-delete" onclick="deleteTask('${task.task_id}')">删除</button>`;
@@ -512,69 +404,12 @@
         }
     }
 
-    // ===== 日志弹窗 =====
-
-    async function fetchLog(taskId) {
-        try {
-            const resp = await fetch(`/tasks/api/log/${taskId}`);
-            const data = await resp.json();
-            renderLog(data);
-        } catch (e) {
-            document.getElementById('logContent').textContent = '[获取日志失败]';
-        }
-    }
-
-    function renderLog(data) {
-        const contentEl = document.getElementById('logContent');
-        const metaEl = document.getElementById('logModalMeta');
-
-        if (!data.content || data.content.trim() === '') {
-            contentEl.innerHTML = '<span class="log-empty">暂无日志</span>';
-        } else {
-            contentEl.textContent = data.content;
-        }
-
-        const statusText = data.status !== '-' ? `上次执行: ${data.status}` : '未执行';
-        metaEl.textContent = `${statusText} · ${data.executed_at || '-'}`;
-    }
-
-    function openLogModal(taskId, taskName) {
-        currentLogTaskId = taskId;
-        document.getElementById('logModalTitle').textContent = `${taskName} - 执行日志`;
-        document.getElementById('logModal').classList.add('open');
-        document.body.style.overflow = 'hidden';
-        fetchLog(taskId);
-
-        // 开始轮询日志
-        if (logInterval) clearInterval(logInterval);
-        logInterval = setInterval(() => {
-            if (currentLogTaskId) fetchLog(currentLogTaskId);
-        }, 3000);
-    }
-
-    function closeLogModal() {
-        document.getElementById('logModal').classList.remove('open');
-        document.body.style.overflow = '';
-        currentLogTaskId = null;
-        if (logInterval) {
-            clearInterval(logInterval);
-            logInterval = null;
-        }
-    }
-
-    function handleOverlayClick(event) {
-        if (event.target === document.getElementById('logModal')) {
-            closeLogModal();
-        }
-    }
-
     // 初始化：只获取一次列表，由 renderTaskList 内部根据 running 状态自动控制轮询
     fetchTaskList();
 
     // 页面卸载时清理定时器
     window.addEventListener('beforeunload', () => {
         if (listInterval) clearInterval(listInterval);
-        if (logInterval) clearInterval(logInterval);
     });
 </script>
 {% endblock %}

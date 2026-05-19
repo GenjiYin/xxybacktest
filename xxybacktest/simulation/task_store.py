@@ -8,6 +8,7 @@ xxy-sim 启动时调用 load_tasks() 恢复，支持热注册和热删除。
 import json
 import os
 import random
+import shutil
 import string
 from datetime import datetime
 
@@ -155,6 +156,7 @@ def remove_task(task_id: str, data_path: str = "./data") -> bool:
     删除指定任务。
     - 从 JSON 中移除
     - 如果调度器已启动，立即从 APScheduler 热删除
+    - 同时删除该任务的所有日志和历史记录
     """
     tasks = _load_raw(data_path)
     new_tasks = [t for t in tasks if t["task_id"] != task_id]
@@ -163,4 +165,17 @@ def remove_task(task_id: str, data_path: str = "./data") -> bool:
 
     _save_raw(data_path, new_tasks)
     remove_job(task_id)
+
+    # 清理日志文件
+    log_dir = os.path.join(data_path, "simulation_results", "task_logs")
+    for ext in [".log", ".status"]:
+        path = os.path.join(log_dir, f"{task_id}{ext}")
+        if os.path.exists(path):
+            os.remove(path)
+
+    # 清理历史日志目录
+    history_dir = os.path.join(log_dir, "history", task_id)
+    if os.path.exists(history_dir):
+        shutil.rmtree(history_dir)
+
     return True

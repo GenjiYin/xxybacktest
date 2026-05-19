@@ -7,6 +7,7 @@ APScheduler 全局单例封装
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from contextlib import redirect_stdout, redirect_stderr
@@ -44,6 +45,21 @@ def _log_path(task_id: str, data_path: str) -> str:
 
 def _status_path(task_id: str, data_path: str) -> str:
     return os.path.join(_log_dir(data_path), f"{task_id}.status")
+
+
+def _history_dir(task_id: str, data_path: str) -> str:
+    path = os.path.join(_log_dir(data_path), "history", task_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _archive_log(task_id: str, data_path: str, log_file: str):
+    """将最新日志复制到历史目录，按执行时间命名。"""
+    if not os.path.exists(log_file):
+        return
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    history_file = os.path.join(_history_dir(task_id, data_path), f"{ts}.log")
+    shutil.copy2(log_file, history_file)
 
 
 def _write_status(task_id: str, data_path: str, status: str, exit_code: int = None):
@@ -125,6 +141,8 @@ def add_script_job(task_id: str, name: str, script: str, cron: str, data_path: s
                 lf.write(f"异常: {e}\n")
                 _write_status(task_id, data_path, "error")
 
+        _archive_log(task_id, data_path, log_file)
+
     trigger = CronTrigger(**_parse_cron(cron))
     scheduler.add_job(
         _run_script,
@@ -164,6 +182,8 @@ def add_func_job(task_id: str, name: str, func, cron: str, data_path: str):
                     print(f"异常: {e}")
                     print("结果: 失败")
                     _write_status(task_id, data_path, "error", 1)
+
+        _archive_log(task_id, data_path, log_file)
 
     trigger = CronTrigger(**_parse_cron(cron))
     scheduler.add_job(
@@ -325,3 +345,42 @@ def get_all_jobs(data_path: str) -> list:
             })
 
     return result
+
+
+def get_task_history(task_id: str, data_path: str) -> list:
+    """
+    返回任务的历史运行记录列表。
+
+    每条记录包含:
+        - executed_at: 执行时间 (YYYY-MM-DD HH:MM:SS)
+        - content: 该次执行的完整日志内容
+    """
+    history_dir = os.path.join(_log_dir(data_path), "history", task_id)
+    if not os.path.exists(history_dir):
+        return []
+
+    records = []
+    for filename in sorted(os.listdir(history_dir), reverse=True):
+        if not filename.endswith(".log"):
+            continue
+        # 文件名格式: YYYYMMDD_HHMMSS.log
+        ts = filename[:-4]
+        try:
+            dt = datetime.strptime(ts, "%Y%m%d_%H%M%S")
+            executed_at = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            executed_at = ts
+
+        filepath = os.path.join(history_dir, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            content = "[读取日志失败]"
+
+        records.append({
+            "executed_at": executed_at,
+            "content": content,
+        })
+
+    return records
