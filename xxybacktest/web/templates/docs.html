@@ -242,6 +242,7 @@
         <ul>
             <li><strong>策略回测</strong>：基于历史数据验证策略表现</li>
             <li><strong>模拟账户</strong>：将策略注册为每日自动运行的模拟交易账户</li>
+            <li><strong>实盘交易</strong>：对接 QMT，策略信号自动转化为真实委托下单</li>
             <li><strong>定时任务</strong>：灵活调度数据更新、策略重跑等任意脚本</li>
             <li><strong>Web 可视化</strong>：策略净值、持仓、信号一目了然</li>
         </ul>
@@ -249,15 +250,19 @@
         <h3>架构简图</h3>
         <pre><code>xxy-sim 启动
 └── Flask (port 5000)
-    ├── /              ← 账户列表
+    ├── /              ← 账户列表（模拟+实盘）
     ├── /account/&lt;id&gt;  ← 账户详情（净值曲线、持仓、信号）
-    ├── /tasks         ← 定时任务管理
+    ├── /tasks         ← 定时任务管理（含实盘调度）
     └── /docs          ← API 文档（本页）
 
 APScheduler（后台）
     ├── builtin_run_simulation  ← 内置：每日模拟交易重跑
+    ├── live_&lt;account_id&gt;      ← 实盘：定时触发策略下单（QMT）
     ├── task_数据更新            ← 用户注册：数据更新脚本
-    └── task_xxx                 ← 用户注册：任意脚本</code></pre>
+    └── task_xxx                 ← 用户注册：任意脚本
+
+实盘链路
+    APScheduler → live/runner.py → QMTTrader → xtquant → 真实委托</code></pre>
 
         <h2 id="quickstart">快速开始</h2>
 
@@ -411,7 +416,7 @@ def strategy(context):
     # 每日策略逻辑
     print(context.current_dt)</code></pre>
 
-        <h2 id="simulation">模拟交易用法</h2>
+        <h2 id="simulation">账户管理</h2>
 
         <h3>注册模拟账户</h3>
         <pre><code>from xxybacktest.simulation import submit
@@ -430,28 +435,56 @@ account_id = submit(
 
 print(f"账户已注册: {account_id}")</code></pre>
 
+        <h3>注册实盘账户</h3>
+        <pre><code>from xxybacktest.simulation import submit
+
+account_id = submit(
+    name="茅台实盘策略",
+    initialize=initialize,
+    handle_data=handle_data,
+    account_type="live",                    # 指定为实盘账户
+    live_account_id="8881686799",           # QMT 资金账号
+    qmt_path=r"D:\\国金证券QMT交易端\\userdata_mini",
+    trigger_cron="30 9 * * *",              # 每天 9:30 触发调仓
+    asset_type="stock",
+    data_path="./data",
+)
+
+print(f"实盘账户已注册: {account_id}")</code></pre>
+
+        <div class="warn-box">
+            <strong>注意：</strong>实盘注册时会自动连接 QMT 读取总资产作为 <code>initial_cash</code>，你传入的 <code>capital</code> 会被覆盖。
+        </div>
+
+        <h3>submit 参数表</h3>
         <table>
             <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
             <tr><td><code>name</code></td><td>账户名称（展示用）</td><td>必填</td></tr>
             <tr><td><code>initialize</code></td><td>初始化函数</td><td>必填</td></tr>
             <tr><td><code>handle_data</code></td><td>策略主函数（可选）</td><td>None</td></tr>
-            <tr><td><code>capital</code></td><td>初始资金</td><td>100000</td></tr>
+            <tr><td><code>capital</code></td><td>初始资金（实盘会被 QMT 总资产覆盖）</td><td>100000</td></tr>
             <tr><td><code>start_date</code></td><td>策略开始日期 'YYYY-MM-DD'，默认今天</td><td>None</td></tr>
             <tr><td><code>data_path</code></td><td>数据目录</td><td>./data</td></tr>
             <tr><td><code>asset_type</code></td><td>'stock' 或 'fund'</td><td>stock</td></tr>
             <tr><td><code>benchmark</code></td><td>基准指数代码</td><td>000001.SH</td></tr>
-            <tr><td><code>run_now</code></td><td>注册后立即运行回测</td><td>False</td></tr>
+            <tr><td><code>run_now</code></td><td>注册后立即运行回测（仅模拟账户）</td><td>False</td></tr>
+            <tr><td><code>account_type</code></td><td>'sim'（模拟）或 'live'（实盘）</td><td>sim</td></tr>
+            <tr><td><code>live_account_id</code></td><td>QMT 资金账号（实盘必填）</td><td>None</td></tr>
+            <tr><td><code>qmt_path</code></td><td>QMT 客户端安装目录（实盘必填）</td><td>None</td></tr>
+            <tr><td><code>trigger_cron</code></td><td>实盘定时触发 cron 表达式</td><td>30 9 * * *</td></tr>
+            <tr><td><code>execution_mode</code></td><td>执行模式：'daily' 或 'periodic'</td><td>daily</td></tr>
+            <tr><td><code>rebalance_interval</code></td><td>调仓周期天数（periodic 模式生效）</td><td>1</td></tr>
         </table>
 
         <h3>账户管理</h3>
         <pre><code>from xxybacktest.simulation import (
     list_accounts, get_account,
-    pause, resume, delete,
+    pause, resume, delete, update_account,
     run_single, run_all,
     get_account_nav, get_account_positions, get_account_orders,
 )
 
-# 列出所有账户
+# 列出所有账户（含模拟+实盘）
 accounts = list_accounts(data_path="./data")
 
 # 只列运行中账户
@@ -460,14 +493,22 @@ running = list_accounts(status='running', data_path="./data")
 # 查看单个账户详情
 info = get_account(account_id, data_path="./data")
 
-# 暂停账户（暂停后不再参与每日重跑）
+# 暂停账户（暂停后不再参与每日重跑/调仓）
 pause(account_id, data_path="./data")
 
 # 恢复账户
 resume(account_id, data_path="./data")
 
-# 删除账户及其所有历史数据
+# 删除账户及其所有历史数据（实盘会同步清理 APScheduler job 和 live_schedule.json）
 delete(account_id, data_path="./data")
+
+# 修改账户策略或配置（修改后下次定时触发自动生效，无需重启）
+update_account(
+    account_id,
+    initialize_code="def initialize(ctx):\n    ctx.g['x'] = 1",
+    trigger_cron="30 10 * * *",
+    data_path="./data",
+)
 
 # 手动重跑单个账户
 result = run_single(account_id, end_date="2024-12-31", data_path="./data")
@@ -491,6 +532,92 @@ data/live/accounts/                 # 实盘交易
   live_001/daily_values.parquet
   live_001/positions.parquet
   live_001/orders.parquet</code></pre>
+
+        <h2 id="live-trading">实盘交易</h2>
+        <p>实盘账户通过 APScheduler 定时触发 <code>run_live()</code>，自动连接 QMT 执行策略并产生真实委托。策略代码与回测完全一致，无需修改。</p>
+
+        <h3>实盘执行流程</h3>
+        <ol>
+            <li>APScheduler 按 <code>trigger_cron</code> 触发 <code>run_live(account_id)</code></li>
+            <li>连接 QMT，读取当前持仓和总资产</li>
+            <li>从数据库加载最新策略源码，构建实盘 context</li>
+            <li>执行 <code>initialize</code>（首次）和 <code>handle_data</code></li>
+            <li>策略中的下单函数（如 <code>order_target_percent</code>）直接发往 QMT</li>
+            <li>保存调仓结果（净值、持仓、订单）到 <code>data/live/accounts/&lt;id&gt;/</code></li>
+            <li>持久化策略状态 <code>context.g</code> 到 <code>live_schedule.json</code></li>
+        </ol>
+
+        <h3>策略编写注意事项</h3>
+
+        <div class="warn-box">
+            <strong>关键规则：策略函数内部不要引用外部全局变量。</strong>
+            <code>run_live()</code> 用 <code>exec()</code> 在独立模块中加载策略源码，外部变量不可见。
+            所有配置应在函数内部硬编码，或通过 <code>context.g</code> 持久化存储。
+        </div>
+
+        <pre><code># 错误示范 ❌
+TARGET_PCT = 0.10  # 外部全局变量
+
+def handle_data(context):
+    context.order_target_percent("600519.SH", TARGET_PCT)  # NameError!
+
+# 正确示范 ✅
+def handle_data(context):
+    target_pct = 0.10  # 内部硬编码
+    context.order_target_percent("600519.SH", target_pct)
+
+# 或者用 context.g 持久化（推荐）✅
+def initialize(context):
+    context.g.setdefault("target_pct", 0.10)
+    context.g.setdefault("run_count", 0)
+
+def handle_data(context):
+    context.g["run_count"] += 1
+    context.order_target_percent("600519.SH", context.g["target_pct"])</code></pre>
+
+        <h3>策略状态持久化</h3>
+        <p><code>context.g</code> 支持基础类型（int、float、str、list、dict），每次 <code>run_live</code> 执行结束后自动保存到 <code>live_schedule.json</code>，下次执行前自动恢复。</p>
+        <pre><code># initialize 中初始化状态
+context.g.setdefault("signal", "hold")
+context.g.setdefault("positions", {})
+
+# handle_data 中读取和更新
+if context.g["signal"] == "buy":
+    context.order_target_percent("600519.SH", 0.10)
+    context.g["signal"] = "hold"</code></pre>
+
+        <h3>实盘交易函数</h3>
+        <p>实盘 context 上的交易函数与回测签名完全一致：</p>
+        <table>
+            <tr><th>函数</th><th>说明</th></tr>
+            <tr><td><code>context.order(security, amount)</code></td><td>按数量下单，自动转发到 QMT</td></tr>
+            <tr><td><code>context.order_target_percent(security, percent)</code></td><td>按总资产百分比调仓（推荐）</td></tr>
+            <tr><td><code>context.order_target_value(security, value)</code></td><td>调仓至目标市值</td></tr>
+            <tr><td><code>context.get_portfolio()</code></td><td>实时从 QMT 拉取最新资金和持仓</td></tr>
+        </table>
+
+        <h3>修改实盘策略（热更新）</h3>
+        <p><code>update_account()</code> 支持修改策略代码、cron 表达式、QMT 配置等，修改后下次定时触发自动生效，无需重启 <code>xxy-sim</code>。</p>
+        <pre><code>from xxybacktest.simulation import update_account
+
+# 修改策略代码
+update_account(
+    "live_20260522_111635_7b6e30",
+    initialize_code="def initialize(ctx):\n    ctx.g['target'] = 0.05",
+    handle_data_code="def handle_data(ctx):\n    ctx.order_target_percent('600519.SH', ctx.g['target'])",
+    data_path="./data",
+)
+
+# 修改触发时间
+update_account(
+    "live_20260522_111635_7b6e30",
+    trigger_cron="0 10 * * *",  # 改为 10:00
+    data_path="./data",
+)</code></pre>
+
+        <div class="highlight-box">
+            <code>trigger_cron</code> 修改后，如果 APScheduler 正在运行，会自动热更新调度时间，无需重启服务。
+        </div>
 
         <h2 id="scheduler">定时任务</h2>
         <p>系统使用 APScheduler 管理定时任务，支持<strong>热注册、热删除</strong>，无需重启服务。</p>
@@ -547,7 +674,8 @@ tid = schedule_task(
 
         <h3>账户列表页（/）</h3>
         <ul>
-            <li>展示所有模拟账户的<strong>累计收益率、当日收益、最大回撤</strong></li>
+            <li>展示所有模拟+实盘账户的<strong>累计收益率、当日收益、最大回撤</strong></li>
+            <li>实盘账户卡片带红色"实盘"标签和红色左边框，与模拟账户区分</li>
             <li>点击账户卡片进入详情页</li>
             <li>支持<strong>策略组合</strong>：多选账户后按权重合成组合净值曲线</li>
         </ul>
@@ -563,10 +691,10 @@ tid = schedule_task(
 
         <h3>任务管理页（/tasks）</h3>
         <ul>
-            <li>查看所有定时任务的<strong>名称、cron 表达式、下次执行时间、上次状态</strong></li>
+            <li>查看所有定时任务的<strong>名称、cron 表达式、下次执行时间、上次状态</strong>（含模拟重跑任务和实盘调仓任务）</li>
             <li><strong>手动触发</strong>：立即执行一次任务</li>
             <li><strong>查看日志</strong>：弹出窗口实时展示任务执行日志（3 秒轮询刷新）</li>
-            <li><strong>删除任务</strong>：用户注册的任务可删除，内置任务不可删除</li>
+            <li><strong>删除任务</strong>：用户注册的任务和实盘任务可删除，内置任务不可删除</li>
         </ul>
 
         <h2 id="http-api">HTTP API</h2>
@@ -607,7 +735,12 @@ tid = schedule_task(
             <tr>
                 <td><code>/api/accounts/&lt;id&gt;</code></td>
                 <td><span class="endpoint delete">DELETE</span></td>
-                <td>删除账户</td>
+                <td>删除账户（实盘会同步清理 APScheduler job、live_schedule.json、结果目录）</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;</code></td>
+                <td><span class="endpoint post">PUT</span></td>
+                <td>更新账户配置/策略代码。请求体：<code>{"initialize_code":"...", "trigger_cron":"30 10 * * *"}</code>（热更新，无需重启）</td>
             </tr>
             <tr>
                 <td><code>/api/portfolio/nav</code></td>
@@ -654,6 +787,15 @@ tid = schedule_task(
 
         <h4>Q：日志在哪里看？</h4>
         <p>A：任务日志存储在 <code>data/simulation_results/task_logs/&lt;task_id&gt;.log</code>，可以通过 Web 界面的"日志"按钮实时查看。</p>
+
+        <h4>Q：实盘策略报错 "name 'xxx' is not defined" 怎么办？</h4>
+        <p>A：策略函数内部引用了外部全局变量。实盘用 <code>exec()</code> 在独立模块中加载源码，外部变量不可见。请将所有配置硬编码在函数内部，或通过 <code>context.g</code> 持久化。</p>
+
+        <h4>Q：修改实盘策略后需要重启服务吗？</h4>
+        <p>A：不需要。调用 <code>update_account()</code> 修改策略代码或 cron 后，下次定时触发自动生效。APScheduler 的调度时间也会热更新。</p>
+
+        <h4>Q：删除实盘账户后任务管理还有记录？</h4>
+        <p>A：正常删除会同步清理 APScheduler job、live_schedule.json、结果目录和日志。如果仍有残留，运行 <code>python scripts/cleanup_live_residual.py "D:\Desktop\最新回测框架\data"</code> 清理。</p>
 
         <h4>Q：数据存储格式变更后旧数据怎么办？</h4>
         <p>A：最简单的方式是<strong>让所有账户重跑一次</strong>，新文件会自动生成。模拟账户路径为 <code>data/simulation_results/accounts/&lt;account_id&gt;/</code>，实盘账户路径为 <code>data/live/accounts/&lt;account_id&gt;/</code>。</p>
