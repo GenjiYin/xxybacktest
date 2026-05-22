@@ -480,12 +480,17 @@ nav_df = get_account_nav(account_id, data_path="./data")
 pos_df = get_account_positions(account_id, date="2024-12-31", data_path="./data")
 order_df = get_account_orders(account_id, limit=100, data_path="./data")</code></pre>
 
-        <h3>模拟交易存储结构</h3>
-        <p>每个账户的结果独立存储，避免多进程并行写入冲突：</p>
-        <pre><code>data/simulation_results/accounts/
-  sim_001/daily_values.parquet   # 每日净值
-  sim_001/positions.parquet      # 持仓快照
-  sim_001/orders.parquet         # 成交记录</code></pre>
+        <h3>存储结构</h3>
+        <p>模拟交易和实盘账户的结果分别独立存储：</p>
+        <pre><code>data/simulation_results/accounts/   # 模拟交易
+  sim_001/daily_values.parquet
+  sim_001/positions.parquet
+  sim_001/orders.parquet
+
+data/live/accounts/                 # 实盘交易
+  live_001/daily_values.parquet
+  live_001/positions.parquet
+  live_001/orders.parquet</code></pre>
 
         <h2 id="scheduler">定时任务</h2>
         <p>系统使用 APScheduler 管理定时任务，支持<strong>热注册、热删除</strong>，无需重启服务。</p>
@@ -651,7 +656,7 @@ tid = schedule_task(
         <p>A：任务日志存储在 <code>data/simulation_results/task_logs/&lt;task_id&gt;.log</code>，可以通过 Web 界面的"日志"按钮实时查看。</p>
 
         <h4>Q：数据存储格式变更后旧数据怎么办？</h4>
-        <p>A：最简单的方式是<strong>让所有账户重跑一次</strong>，新文件会自动生成。存储路径为 <code>data/simulation_results/accounts/&lt;account_id&gt;/</code>。</p>
+        <p>A：最简单的方式是<strong>让所有账户重跑一次</strong>，新文件会自动生成。模拟账户路径为 <code>data/simulation_results/accounts/&lt;account_id&gt;/</code>，实盘账户路径为 <code>data/live/accounts/&lt;account_id&gt;/</code>。</p>
     </article>
 
     <aside class="doc-sidebar">

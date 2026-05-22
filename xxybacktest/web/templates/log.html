@@ -4,138 +4,95 @@
 
 {% block extra_css %}
 <style>
-    .log-page {
-        display: flex;
-        height: calc(100vh - 80px);
-        gap: 16px;
-    }
-
-    /* 左侧时间列表 */
-    .log-sidebar {
-        width: 260px;
-        flex-shrink: 0;
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .log-sidebar-header {
-        padding: 16px 20px;
-        border-bottom: 1px solid #f0f0f0;
-        font-size: 15px;
-        font-weight: 500;
-        color: #333;
-        flex-shrink: 0;
-    }
-
-    .log-sidebar-header .task-name {
-        color: #667eea;
-    }
-
-    .log-sidebar-list {
-        flex: 1;
-        overflow-y: auto;
-    }
-
-    .log-time-item {
-        padding: 12px 20px;
+    .time-item {
+        padding: 14px 20px;
         cursor: pointer;
-        border-left: 3px solid transparent;
+        border-bottom: 1px solid #e8e8e8;
+        font-size: 14px;
+        color: #666;
         transition: all 0.15s;
         display: flex;
+        justify-content: space-between;
         align-items: center;
         gap: 8px;
-        border-bottom: 1px solid #f5f5f5;
     }
-
-    .log-time-item:hover {
-        background: #f8f9ff;
+    .time-item .time-text {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
-
-    .log-time-item.active {
-        background: #f0f2ff;
-        border-left-color: #667eea;
-    }
-
-    .log-time-item .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
+    .time-item .mini-status {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 7px;
+        border-radius: 3px;
         flex-shrink: 0;
     }
-
-    .log-time-item .dot.success { background: #52c41a; }
-    .log-time-item .dot.failed  { background: #ff4d4f; }
-    .log-time-item .dot.error   { background: #ff4d4f; }
-    .log-time-item .dot.running { background: #1890ff; }
-    .log-time-item .dot.unknown { background: #999; }
-
-    .log-time-item .time-text {
-        font-size: 13px;
+    .mini-status.success { background: #d9f7be; color: #52c41a; }
+    .mini-status.failed  { background: #ffccc7; color: #ff4d4f; }
+    .mini-status.error   { background: #ffccc7; color: #ff4d4f; }
+    .mini-status.running { background: #bae7ff; color: #1890ff; }
+    .mini-status.unknown { background: #f0f0f0; color: #999; }
+    .time-item.active .mini-status.success { background: rgba(255,255,255,0.25); color: #fff; }
+    .time-item.active .mini-status.failed,
+    .time-item.active .mini-status.error   { background: rgba(255,255,255,0.25); color: #fff; }
+    .time-item.active .mini-status.running { background: rgba(255,255,255,0.25); color: #fff; }
+    .time-item.active .mini-status.unknown { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8); }
+    .time-item:hover {
+        background: #f0f0f0;
         color: #333;
-        line-height: 1.4;
     }
-
-    .log-time-item .time-text .date {
-        font-weight: 500;
+    .time-item.active {
+        background: #667eea;
+        color: white;
+        border-left: 4px solid #4c63c9;
+        padding-left: 16px;
     }
-
-    .log-time-item .time-text .hour {
-        color: #999;
-        font-size: 12px;
+    .time-item.active:hover {
+        background: #5a6fd6;
     }
-
-    .log-sidebar-empty {
+    .sidebar-empty {
         padding: 40px 20px;
         text-align: center;
         color: #999;
-        font-size: 13px;
+        font-size: 14px;
     }
-
-    /* 右侧日志内容 */
-    .log-main {
-        flex: 1;
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .log-main-header {
-        padding: 16px 24px;
-        border-bottom: 1px solid #f0f0f0;
+    .header {
+        padding: 14px 24px;
+        background: #2d2d2d;
+        border-bottom: 1px solid #3e3e3e;
         display: flex;
         justify-content: space-between;
         align-items: center;
         flex-shrink: 0;
     }
-
-    .log-main-header .meta {
-        font-size: 13px;
-        color: #999;
+    .header .time-display {
+        font-size: 14px;
+        color: #d4d4d4;
     }
-
-    .log-main-header .status-badge {
+    .status-badge {
         display: inline-block;
         padding: 3px 10px;
         border-radius: 4px;
         font-size: 12px;
         font-weight: 500;
     }
-
-    .log-main-body {
-        flex: 1;
-        overflow: auto;
-        background: #1e1e1e;
-        padding: 20px 24px;
+    .btn-back {
+        padding: 5px 14px;
+        border-radius: 4px;
+        font-size: 13px;
+        background: #3e3e3e;
+        color: #ccc;
+        border: 1px solid #555;
+        text-decoration: none;
+        cursor: pointer;
     }
-
-    .log-content {
+    .btn-back:hover {
+        background: #4e4e4e;
+        color: white;
+    }
+    .log-pre {
         font-family: 'SF Mono', Monaco, 'Courier New', monospace;
         font-size: 13px;
         line-height: 1.7;
@@ -143,68 +100,38 @@
         white-space: pre-wrap;
         word-break: break-all;
         margin: 0;
+        padding: 20px 24px;
     }
-
-    .log-content .empty-msg {
+    .empty-msg {
         color: #666;
         font-style: italic;
-    }
-
-    .log-main-empty {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        color: #999;
-        font-size: 14px;
-    }
-
-    .btn-back {
-        padding: 6px 14px;
-        border-radius: 4px;
-        font-size: 13px;
-        background: #f5f7fa;
-        color: #666;
-        border: 1px solid #e8e8e8;
-        text-decoration: none;
-        cursor: pointer;
-    }
-
-    .btn-back:hover {
-        border-color: #667eea;
-        color: #667eea;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="log-page">
-    <!-- 左侧时间列表 -->
-    <div class="log-sidebar">
-        <div class="log-sidebar-header">
-            执行记录 <span class="task-name" id="taskName"></span>
-        </div>
-        <div class="log-sidebar-list" id="sidebarList">
-            <div class="log-sidebar-empty">加载中...</div>
-        </div>
+<!-- 必须是这种结构，不要改 -->
+<div style="display: flex; height: 100vh;">
+  <!-- 左栏：时间列表 -->
+  <div style="width: 280px; flex-shrink: 0; overflow-y: auto; background: #fafafa; border-right: 1px solid #e8e8e8;">
+    <div id="sidebarList">
+      <div class="sidebar-empty">加载中...</div>
     </div>
+  </div>
 
-    <!-- 右侧日志内容 -->
-    <div class="log-main">
-        <div class="log-main-header">
-            <div>
-                <span id="currentTime" style="font-size:15px;font-weight:500;color:#333;">--</span>
-                <span class="meta" id="currentMeta"></span>
-            </div>
-            <div>
-                <span class="status-badge" id="currentStatus">--</span>
-                <a href="/tasks" class="btn-back" style="margin-left:12px;">返回</a>
-            </div>
-        </div>
-        <div class="log-main-body" id="logBody">
-            <div class="log-main-empty">请选择左侧执行时间</div>
-        </div>
+  <!-- 右栏：详情 -->
+  <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+    <div class="header">
+      <span class="time-display" id="currentTime">--</span>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="status-badge" id="currentStatus">--</span>
+        <a href="/tasks" class="btn-back">返回</a>
+      </div>
     </div>
+    <div style="flex: 1; overflow-y: auto; background: #1e1e1e;" id="logBody">
+      <pre class="log-pre"><span class="empty-msg">请选择左侧执行时间</span></pre>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -214,7 +141,6 @@
     let historyData = [];
     let currentLog = null;
 
-    // 从最新日志中提取状态
     function parseLogStatus(content) {
         if (!content) return 'unknown';
         if (content.includes('结果: 成功')) return 'success';
@@ -225,7 +151,6 @@
     }
 
     async function loadData() {
-        // 并行获取最新日志和历史记录
         const [logResp, histResp] = await Promise.all([
             fetch(`/tasks/api/log/${TASK_ID}`),
             fetch(`/tasks/api/history/${TASK_ID}`),
@@ -235,7 +160,6 @@
         const histData = await histResp.json();
         historyData = histData.success ? histData.history : [];
 
-        // 如果最新日志有内容且不在历史中，插入到最前面
         if (currentLog.content && currentLog.content.trim() !== '') {
             const latestExists = historyData.some(h => h.executed_at === currentLog.executed_at);
             if (!latestExists && currentLog.executed_at !== '-') {
@@ -243,14 +167,11 @@
                     executed_at: currentLog.executed_at,
                     content: currentLog.content,
                     status: currentLog.status,
-                    is_latest: true,
                 });
             }
         }
 
         renderSidebar();
-
-        // 默认选中第一条（最新的）
         if (historyData.length > 0) {
             selectEntry(0);
         }
@@ -259,48 +180,43 @@
     function renderSidebar() {
         const container = document.getElementById('sidebarList');
         if (historyData.length === 0) {
-            container.innerHTML = '<div class="log-sidebar-empty">暂无执行记录</div>';
+            container.innerHTML = '<div class="sidebar-empty">暂无执行记录</div>';
             return;
         }
-
         container.innerHTML = historyData.map((item, idx) => {
-            const status = item.status || parseLogStatus(item.content);
             const isActive = idx === 0 ? 'active' : '';
-            const [datePart, timePart] = item.executed_at.split(' ');
-            const label = item.is_latest ? '最新' : '';
-
-            return `
-                <div class="log-time-item ${isActive}" onclick="selectEntry(${idx})" data-idx="${idx}">
-                    <span class="dot ${status}"></span>
-                    <span class="time-text">
-                        <span class="date">${datePart}</span>
-                        <span class="hour">${timePart} ${label}</span>
-                    </span>
-                </div>
-            `;
+            const st = item.status || parseLogStatus(item.content);
+            const stMap = {
+                success: '成功',
+                failed:  '失败',
+                error:   '错误',
+                running: '执行中',
+                unknown: '--',
+            };
+            return `<div class="time-item ${isActive}" onclick="selectEntry(${idx})" data-idx="${idx}">
+                        <span class="time-text">${item.executed_at}</span>
+                        <span class="mini-status ${st}">${stMap[st] || '--'}</span>
+                    </div>`;
         }).join('');
     }
 
     function selectEntry(idx) {
-        // 更新左侧高亮
-        document.querySelectorAll('.log-time-item').forEach(el => el.classList.remove('active'));
-        const target = document.querySelector(`.log-time-item[data-idx="${idx}"]`);
+        document.querySelectorAll('.time-item').forEach(el => el.classList.remove('active'));
+        const target = document.querySelector(`.time-item[data-idx="${idx}"]`);
         if (target) target.classList.add('active');
 
         const item = historyData[idx];
         if (!item) return;
 
-        // 更新右侧头部
         document.getElementById('currentTime').textContent = item.executed_at;
-        document.getElementById('currentMeta').textContent = item.is_latest ? ' · 最新执行' : '';
 
         const status = item.status || parseLogStatus(item.content);
         const STATUS_MAP = {
-            'success': { text: '成功', class: 'success', bg: '#e6f7e6', color: '#52c41a' },
-            'failed':  { text: '失败', class: 'failed', bg: '#fff1f0', color: '#ff4d4f' },
-            'error':   { text: '错误', class: 'error', bg: '#fff1f0', color: '#ff4d4f' },
-            'running': { text: '执行中', class: 'running', bg: '#e6f4ff', color: '#1890ff' },
-            'unknown': { text: '未知', class: 'unknown', bg: '#f5f5f5', color: '#999' },
+            'success': { text: '成功', bg: '#52c41a', color: 'white' },
+            'failed':  { text: '失败', bg: '#ff4d4f', color: 'white' },
+            'error':   { text: '错误', bg: '#ff4d4f', color: 'white' },
+            'running': { text: '执行中', bg: '#1890ff', color: 'white' },
+            'unknown': { text: '未知', bg: '#666', color: 'white' },
         };
         const st = STATUS_MAP[status] || STATUS_MAP['unknown'];
         const badge = document.getElementById('currentStatus');
@@ -308,12 +224,11 @@
         badge.style.background = st.bg;
         badge.style.color = st.color;
 
-        // 更新日志内容
         const body = document.getElementById('logBody');
         if (!item.content || item.content.trim() === '') {
-            body.innerHTML = '<pre class="log-content"><span class="empty-msg">暂无日志内容</span></pre>';
+            body.innerHTML = '<pre class="log-pre"><span class="empty-msg">暂无日志内容</span></pre>';
         } else {
-            body.innerHTML = `<pre class="log-content">${escapeHtml(item.content)}</pre>`;
+            body.innerHTML = `<pre class="log-pre">${escapeHtml(item.content)}</pre>`;
         }
     }
 
@@ -323,14 +238,12 @@
         return div.innerHTML;
     }
 
-    // 初始化加载
     loadData();
 
-    // 每 5 秒刷新最新日志（如果选中的是最新那条）
     setInterval(async () => {
-        const active = document.querySelector('.log-time-item.active');
+        const active = document.querySelector('.time-item.active');
         const idx = active ? parseInt(active.dataset.idx) : -1;
-        if (idx !== 0) return;  // 只刷新最新日志
+        if (idx !== 0) return;
 
         try {
             const resp = await fetch(`/tasks/api/log/${TASK_ID}`);

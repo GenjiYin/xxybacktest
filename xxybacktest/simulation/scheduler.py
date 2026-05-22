@@ -168,9 +168,10 @@ def add_func_job(task_id: str, name: str, func, cron: str, data_path: str):
         _write_status(task_id, data_path, "running")
         with open(log_file, "w", encoding="utf-8") as lf:
             with redirect_stdout(lf), redirect_stderr(lf):
+                func_name = getattr(func, '__name__', None) or getattr(getattr(func, 'func', None), '__name__', str(func))
                 print(f"===== 任务开始: {name} ({task_id}) =====")
                 print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                print(f"函数: {func.__name__}")
+                print(f"函数: {func_name}")
                 print("-" * 40)
                 try:
                     func()
@@ -178,8 +179,10 @@ def add_func_job(task_id: str, name: str, func, cron: str, data_path: str):
                     print("结果: 成功")
                     _write_status(task_id, data_path, "success", 0)
                 except Exception as e:
+                    import traceback
                     print("-" * 40)
                     print(f"异常: {e}")
+                    traceback.print_exc()
                     print("结果: 失败")
                     _write_status(task_id, data_path, "error", 1)
 
@@ -273,15 +276,23 @@ def _read_last_status(task_id: str, data_path: str) -> str:
 
 def sync_user_jobs(data_path: str):
     """
-    将 JSON 持久化中有但 APScheduler 内存中没有的用户任务补注册。
-    解决跨进程调用 schedule_task 时热注册到错误 scheduler 的问题。
+    自动同步三类任务到当前 APScheduler：
+      1. 用户脚本任务（JSON 持久化）
+      2. 模拟内置任务（builtin_run_simulation）
+      3. 实盘账户任务（数据库中的 running live 账户）
+
+    解决跨进程调用 submit/schedule_task 时热注册到错误 scheduler 的问题。
     """
-    # 延迟导入避免循环依赖
-    from .task_store import load_tasks
+    from functools import partial
 
     scheduler = get_scheduler()
+    if not scheduler.running:
+        return
+
     existing_ids = {job.id for job in scheduler.get_jobs()}
 
+    # ── 1. 用户脚本任务（JSON）──
+    from .task_store import load_tasks
     for t in load_tasks(data_path):
         if t["task_id"] not in existing_ids:
             try:
@@ -290,6 +301,29 @@ def sync_user_jobs(data_path: str):
                 )
             except Exception:
                 pass
+
+    # ── 2. 实盘账户任务（数据库）──
+    try:
+        from .submitter import list_accounts
+        from ..live.runner import run_live
+
+        live_accounts = [
+            a for a in list_accounts(status="running", data_path=data_path)
+            if a.get("account_type") == "live"
+        ]
+        for acc in live_accounts:
+            task_id = f"live_{acc['account_id']}"
+            if task_id not in existing_ids:
+                try:
+                    wrapped = partial(run_live, acc["account_id"], data_path)
+                    cron = acc.get("trigger_cron", "30 9 * * *")
+                    add_func_job(
+                        task_id, f"实盘-{acc['name']}", wrapped, cron, data_path
+                    )
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 def trigger_job(task_id: str, data_path: str):
@@ -344,6 +378,34 @@ def get_all_jobs(data_path: str) -> list:
                 "last_status": _read_last_status(task_id, data_path),
             })
 
+    # 补充其他 jobs（如实盘任务等），排除内部任务
+    used_ids = {r["task_id"] for r in result}
+    for job_id, job in scheduled_jobs.items():
+        if job_id not in used_ids and not job_id.startswith("__"):
+            result.append(_format_job(job, data_path))
+            used_ids.add(job_id)
+
+    # ── 兜底：数据库中 running 但尚未注册到 scheduler 的实盘账户 ──
+    try:
+        from .submitter import list_accounts
+        live_accounts = [
+            a for a in list_accounts(status="running", data_path=data_path)
+            if a.get("account_type") == "live"
+        ]
+        for acc in live_accounts:
+            task_id = f"live_{acc['account_id']}"
+            if task_id not in used_ids:
+                result.append({
+                    "task_id": task_id,
+                    "name": f"实盘-{acc['name']}",
+                    "cron": acc.get("trigger_cron", "30 9 * * *"),
+                    "next_run_time": None,
+                    "last_status": _read_last_status(task_id, data_path),
+                })
+                used_ids.add(task_id)
+    except Exception:
+        pass
+
     return result
 
 
@@ -378,9 +440,21 @@ def get_task_history(task_id: str, data_path: str) -> list:
         except Exception:
             content = "[读取日志失败]"
 
+        # 从日志内容中解析执行状态
+        status = "unknown"
+        if "结果: 成功" in content:
+            status = "success"
+        elif "结果: 失败" in content:
+            status = "failed"
+        elif "异常:" in content:
+            status = "error"
+        elif "===== 任务开始" in content:
+            status = "running"
+
         records.append({
             "executed_at": executed_at,
             "content": content,
+            "status": status,
         })
 
     return records

@@ -81,6 +81,7 @@ def index():
             'account_id': account_id,
             'name': acc['name'],
             'status': acc['status'],
+            'account_type': acc.get('account_type', 'sim'),
             'total_return': total_return,
             'latest_daily_return': latest_daily_return,
             'latest_return_date': latest_return_date,

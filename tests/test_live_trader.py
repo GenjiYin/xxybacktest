@@ -12,8 +12,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from xxybacktest.live.trader import QMTTrader, QMTConnectionError
 
-QMT_PATH = r"D:\国金证券QMT交易端\userdata_mini"
-ACCOUNT_ID = "8881686799"
+QMT_PATH   = r"D:\国金QMT交易端模拟\userdata_mini"
+ACCOUNT_ID = "86962531"
 
 
 # ---------------------------------------------------------------------------
@@ -70,14 +70,19 @@ def test_get_portfolio_total_asset_positive():
 
 
 def test_get_portfolio_cash_plus_market_value():
-    """可用资金 + 冻结资金 + 持仓市值 应约等于总资产（允许 1 元误差）。"""
+    """可用资金 + 冻结资金 + 持仓市值 应约等于总资产（允许总资产 1% 误差）。
+
+    注：total_asset 可能包含货币基金、理财等其他资产，不一定严格等于
+    cash + frozen_cash + market_value。
+    """
     p = _trader.get_portfolio()
     reconstructed = p['cash'] + p['frozen_cash'] + p['market_value']
     diff = abs(reconstructed - p['total_asset'])
+    ratio = diff / p['total_asset'] if p['total_asset'] > 0 else 0
     print(f"  cash={p['cash']:.2f}  frozen={p['frozen_cash']:.2f}  "
-          f"market_value={p['market_value']:.2f}  total={p['total_asset']:.2f}  diff={diff:.2f}")
-    assert diff < 1.0, f"资金加总与总资产差异过大: {diff:.2f}"
-    print("[PASS] cash + frozen_cash + market_value ≈ total_asset")
+          f"market_value={p['market_value']:.2f}  total={p['total_asset']:.2f}  diff={diff:.2f}  ratio={ratio:.4%}")
+    assert ratio < 0.01, f"资金加总与总资产差异过大: {diff:.2f} ({ratio:.2%})"
+    print("[PASS] cash + frozen_cash + market_value ≈ total_asset (差异 < 1%)")
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +154,49 @@ def test_get_positions_market_value_consistent():
 
 
 # ---------------------------------------------------------------------------
+# 测试：get_position
+# ---------------------------------------------------------------------------
+
+def test_get_position_held_stock():
+    """对持仓中的股票查询，应返回 dict，字段结构与 get_positions 一致。"""
+    positions = _trader.get_positions()
+    if not positions:
+        print("[SKIP] 当前无持仓，跳过 get_position 持仓股测试")
+        return
+
+    code = next(iter(positions))
+    pos = _trader.get_position(code)
+
+    assert pos is not None, f"{code} 应有持仓但 get_position 返回 None"
+    for key in ('volume', 'can_sell_volume', 'cost_price', 'last_price', 'market_value'):
+        assert key in pos, f"缺少字段: {key}"
+    print(f"[PASS] get_position({code}) 返回结构正确，volume={pos['volume']}")
+
+
+def test_get_position_not_held_returns_none():
+    """无持仓的股票查询，应返回 None。"""
+    pos = _trader.get_position("999999.SZ")
+    assert pos is None, f"预期 None，实际: {pos}"
+    print("[PASS] get_position(999999.SZ) = None")
+
+
+def test_get_position_matches_get_positions():
+    """get_position(code) 返回值应与 get_positions()[code] 完全一致。"""
+    positions = _trader.get_positions()
+    if not positions:
+        print("[SKIP] 当前无持仓")
+        return
+
+    code = next(iter(positions))
+    single = _trader.get_position(code)
+    from_all = positions[code]
+
+    assert single == from_all, \
+        f"get_position({code}) 与 get_positions()[code] 不一致:\n  single={single}\n  from_all={from_all}"
+    print(f"[PASS] get_position({code}) == get_positions()[code]")
+
+
+# ---------------------------------------------------------------------------
 # 测试：get_price
 # ---------------------------------------------------------------------------
 
@@ -159,10 +207,16 @@ def test_get_price_with_held_stock():
         print("[SKIP] 当前无持仓，跳过 get_price 持仓股测试")
         return
 
-    code = next(iter(positions))
-    price = _trader.get_price(code)
+    # 遍历持仓，找到第一个能查到价格的股票（可转债/停牌可能返回 None）
+    for code in positions:
+        price = _trader.get_price(code)
+        if price is not None:
+            break
+    else:
+        print("[SKIP] 所有持仓 tick 价格均为 None（可能全部停牌或为可转债）")
+        return
+
     print(f"  {code} 最新价: {price}")
-    assert price is not None, f"{code} 最新价不应为 None"
     assert isinstance(price, float)
     assert price > 0
     print(f"[PASS] get_price({code}) = {price}")
@@ -182,13 +236,16 @@ def test_get_price_close_to_position_last_price():
         print("[SKIP] 当前无持仓")
         return
 
-    code = next(iter(positions))
-    pos_price = positions[code]['last_price']
-    tick_price = _trader.get_price(code)
-
-    if tick_price is None:
-        print(f"[SKIP] {code} tick 价格为 None（可能停牌）")
+    # 遍历持仓，找到第一个能查到价格的股票
+    for code in positions:
+        tick_price = _trader.get_price(code)
+        if tick_price is not None:
+            break
+    else:
+        print("[SKIP] 所有持仓 tick 价格均为 None")
         return
+
+    pos_price = positions[code]['last_price']
 
     ratio = abs(tick_price - pos_price) / pos_price if pos_price > 0 else 0
     print(f"  {code}: positions.last_price={pos_price:.3f}  get_price={tick_price:.3f}  偏差={ratio:.2%}")
@@ -216,6 +273,11 @@ if __name__ == "__main__":
         test_get_positions_volume_positive()
         test_get_positions_can_sell_le_volume()
         test_get_positions_market_value_consistent()
+
+        print("\n--- get_position ---")
+        test_get_position_held_stock()
+        test_get_position_not_held_returns_none()
+        test_get_position_matches_get_positions()
 
         print("\n--- get_price ---")
         test_get_price_with_held_stock()

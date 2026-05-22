@@ -167,6 +167,24 @@
         color: #ff4d4f;
     }
 
+    /* 实盘标识 */
+    .account-type-live {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        color: #fff;
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        padding: 2px 7px;
+        border-radius: 4px;
+        margin-left: 6px;
+        vertical-align: middle;
+        letter-spacing: 0.5px;
+    }
+
+    .account-card.live-border {
+        border-left: 3px solid #e74c3c;
+    }
+
     .account-metrics {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
@@ -598,7 +616,7 @@
 
 <!-- 账户列表 -->
 <div class="section-header">
-    <h2>模拟账户列表</h2>
+    <h2>策略账户列表</h2>
     <div class="section-header-right">
         <button id="comboBtnToggle" class="combo-toggle-btn" onclick="toggleComboMode()">⊕ 策略组合</button>
         <div class="sort-options">
@@ -617,7 +635,7 @@
 <div class="accounts-grid" id="accountsGrid">
     {% for account in accounts %}
     <a href="/account/{{ account.account_id }}"
-       class="account-card"
+       class="account-card {% if account.account_type == 'live' %}live-border{% endif %}"
        id="card-{{ account.account_id }}"
        onclick="handleCardClick(event, '{{ account.account_id }}', '{{ account.name | e }}')"
        data-return="{{ account.total_return }}"
@@ -629,7 +647,12 @@
 
         <div class="account-header">
             <div>
-                <div class="account-name">{{ account.name }}</div>
+                <div class="account-name">
+                    {{ account.name }}
+                    {% if account.account_type == 'live' %}
+                    <span class="account-type-live">实盘</span>
+                    {% endif %}
+                </div>
                 <div class="account-id">{{ account.account_id }}</div>
             </div>
             <span class="status-badge {{ account.status }}">

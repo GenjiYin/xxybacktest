@@ -18,6 +18,19 @@ import pandas as pd
 from ..backtest import run_backtest
 
 
+def _resolve_account_path(account_id: str, filename: str, data_path: str = "./data") -> str | None:
+    """
+    查找账户数据文件路径。
+    优先查 simulation_results/accounts/，再查 live/accounts/。
+    都找不到返回 None。
+    """
+    for subdir in ("simulation_results", "live"):
+        path = os.path.join(data_path, subdir, "accounts", account_id, filename)
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def _load_func(code: str, func_name: str = "user_func") -> Callable:
     """
     从源码字符串加载函数
@@ -306,7 +319,7 @@ def run_all(end_date: Optional[str] = None, data_path: str = "./data") -> list:
 
 def get_account_nav(account_id: str, data_path: str = "./data") -> pd.DataFrame:
     """
-    获取账户的净值曲线
+    获取账户的净值曲线（自动兼容模拟账户和实盘账户）
 
     参数:
         account_id: 账户ID
@@ -315,8 +328,8 @@ def get_account_nav(account_id: str, data_path: str = "./data") -> pd.DataFrame:
     返回:
         DataFrame: 包含 date, nav, daily_return 列
     """
-    path = os.path.join(data_path, "simulation_results", "accounts", account_id, "daily_values.parquet")
-    if not os.path.exists(path):
+    path = _resolve_account_path(account_id, "daily_values.parquet", data_path)
+    if path is None:
         return pd.DataFrame(columns=['date', 'nav', 'daily_return'])
     df = pd.read_parquet(path)
     return df[['date', 'nav', 'daily_return']].sort_values('date').reset_index(drop=True)
@@ -324,7 +337,7 @@ def get_account_nav(account_id: str, data_path: str = "./data") -> pd.DataFrame:
 
 def get_account_positions(account_id: str, date: Optional[str] = None, data_path: str = "./data") -> pd.DataFrame:
     """
-    获取账户的持仓
+    获取账户的持仓（自动兼容模拟账户和实盘账户）
 
     参数:
         account_id: 账户ID
@@ -334,9 +347,9 @@ def get_account_positions(account_id: str, date: Optional[str] = None, data_path
     返回:
         DataFrame: 持仓信息
     """
-    path = os.path.join(data_path, "simulation_results", "accounts", account_id, "positions.parquet")
+    path = _resolve_account_path(account_id, "positions.parquet", data_path)
     cols = ['date', 'instrument', 'name', 'volume', 'ratio', 'cum_profit', 'cum_return', 'close_price', 'avg_cost']
-    if not os.path.exists(path):
+    if path is None:
         return pd.DataFrame(columns=cols)
     df = pd.read_parquet(path)
     if date:
@@ -351,7 +364,7 @@ def get_account_positions(account_id: str, date: Optional[str] = None, data_path
 
 def get_account_orders(account_id: str, limit: int = 100, data_path: str = "./data") -> pd.DataFrame:
     """
-    获取账户的订单记录
+    获取账户的订单记录（自动兼容模拟账户和实盘账户）
 
     参数:
         account_id: 账户ID
@@ -361,9 +374,9 @@ def get_account_orders(account_id: str, limit: int = 100, data_path: str = "./da
     返回:
         DataFrame: 订单信息
     """
-    path = os.path.join(data_path, "simulation_results", "accounts", account_id, "orders.parquet")
+    path = _resolve_account_path(account_id, "orders.parquet", data_path)
     cols = ['date', 'instrument', 'name', 'volume', 'side', 'status', 'price', 'cost']
-    if not os.path.exists(path):
+    if path is None:
         return pd.DataFrame(columns=cols)
     df = pd.read_parquet(path)
     if 'price' not in df.columns:

@@ -3,7 +3,7 @@ import os
 
 from flask import Blueprint, jsonify, render_template
 
-from xxybacktest.simulation.scheduler import get_all_jobs, get_task_history, trigger_job
+from xxybacktest.simulation.scheduler import get_all_jobs, get_task_history, remove_job, trigger_job
 from xxybacktest.simulation.task_store import remove_task
 
 tasks_bp = Blueprint("tasks", __name__)
@@ -47,6 +47,26 @@ def tasks_api_trigger(task_id):
 def tasks_api_delete(task_id):
     if task_id == BUILTIN_TASK_ID:
         return jsonify({"success": False, "error": "内置任务不能删除"}), 400
+
+    # ── 实盘任务：live_{account_id} ──
+    if task_id.startswith("live_"):
+        try:
+            remove_job(task_id)
+            # 清理日志文件
+            log_dir = os.path.join(_data_path(), "simulation_results", "task_logs")
+            for ext in [".log", ".status"]:
+                log_file = os.path.join(log_dir, f"{task_id}{ext}")
+                if os.path.exists(log_file):
+                    os.remove(log_file)
+            history_dir = os.path.join(log_dir, "history", task_id)
+            if os.path.exists(history_dir):
+                import shutil
+                shutil.rmtree(history_dir)
+            return jsonify({"success": True, "message": "实盘任务已停止，对应账户未删除"})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # ── 用户脚本任务 ──
     try:
         ok = remove_task(task_id, _data_path())
         if ok:

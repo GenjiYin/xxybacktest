@@ -29,6 +29,36 @@ def _fill_missing_names(df, data_path, asset_type):
         from xxydb import xxydb as _xxydb
         db = _xxydb(path=data_path)
         names_map = {}
+
+        # ── 先查股票表（daily_bar）──
+        try:
+            rows = db.query(f"""
+                SELECT instrument, name FROM daily_bar
+                WHERE instrument IN ('{codes_str}')
+                  AND name IS NOT NULL AND name != ''
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY instrument ORDER BY date DESC) = 1
+            """).df()
+            for _, r in rows.iterrows():
+                if r['name'] and r['instrument'] not in names_map:
+                    names_map[r['instrument']] = r['name']
+        except Exception:
+            pass
+
+        # ── 再查基金表（daily_fund）──
+        try:
+            rows = db.query(f"""
+                SELECT instrument, name FROM daily_fund
+                WHERE instrument IN ('{codes_str}')
+                  AND name IS NOT NULL AND name != ''
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY instrument ORDER BY date DESC) = 1
+            """).df()
+            for _, r in rows.iterrows():
+                if r['name'] and r['instrument'] not in names_map:
+                    names_map[r['instrument']] = r['name']
+        except Exception:
+            pass
+
+        # ── 基金分红/拆分小表兜底 ──
         if asset_type == 'fund':
             for tbl in ('fund_dividend', 'fund_split'):
                 try:
@@ -42,19 +72,7 @@ def _fill_missing_names(df, data_path, asset_type):
                             names_map[r['instrument']] = r['name']
                 except Exception:
                     pass
-        else:
-            try:
-                rows = db.query(f"""
-                    SELECT instrument, name FROM daily_bar
-                    WHERE instrument IN ('{codes_str}')
-                      AND name IS NOT NULL AND name != ''
-                    QUALIFY ROW_NUMBER() OVER (PARTITION BY instrument ORDER BY date DESC) = 1
-                """).df()
-                for _, r in rows.iterrows():
-                    if r['name']:
-                        names_map[r['instrument']] = r['name']
-            except Exception:
-                pass
+
         db.close()
 
         if names_map:
@@ -213,6 +231,10 @@ def account_detail(account_id):
             else row['name'],
             axis=1
         )
+        # 兜底：成交记录中也没有的名称，从数据库实时查询
+        positions_df = _fill_missing_names(
+            positions_df, DEFAULT_DATA_PATH, account.get('asset_type', 'stock')
+        )
     positions = []
     for _, row in positions_df.iterrows():
         positions.append({
@@ -225,7 +247,11 @@ def account_detail(account_id):
             'cum_return': round(row['cum_return'] * 100, 2)
         })
 
+    # 兜底：补全订单中的缺失名称（实盘订单写入时可能缺少ETF名称）
     if not orders_df.empty:
+        orders_df = _fill_missing_names(
+            orders_df, DEFAULT_DATA_PATH, account.get('asset_type', 'stock')
+        )
         orders_df['date'] = orders_df['date'].astype(str).str[:10]
     all_orders = []
     for _, row in orders_df.iterrows():

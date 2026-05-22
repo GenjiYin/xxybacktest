@@ -62,6 +62,14 @@ class DictObj:
     def get(self, key, default=None):
         return self._attributes.get(key, default)
 
+    def setdefault(self, key, default=None):
+        """同 dict.setdefault，缺失时创建并返回默认值。"""
+        if key not in self._attributes:
+            if isinstance(default, dict):
+                default = DictObj(default)
+            self._attributes[key] = default
+        return self._attributes[key]
+
     def keys(self):
         return self._attributes.keys()
 

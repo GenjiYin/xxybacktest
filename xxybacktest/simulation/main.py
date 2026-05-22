@@ -7,6 +7,7 @@
 import argparse
 import os
 import sys
+from functools import partial
 
 
 def _parse_args():
@@ -54,6 +55,32 @@ def _register_builtin_jobs(data_path, time_str):
     print(f"[内置任务] 模拟交易 已注册，触发时间: {time_str} (cron: {cron})")
 
 
+def _register_live_jobs(data_path):
+    """注册实盘任务：为每个运行中的实盘账户注册独立 cron job。"""
+    from xxybacktest.simulation.scheduler import add_func_job
+    from xxybacktest.simulation.submitter import list_accounts
+    from xxybacktest.live.runner import run_live
+
+    accounts = list_accounts(status='running', data_path=data_path)
+    live_accounts = [a for a in accounts if a.get('account_type') == 'live']
+
+    if not live_accounts:
+        return
+
+    print(f"[实盘任务] 发现 {len(live_accounts)} 个运行中实盘账户")
+
+    for acc in live_accounts:
+        account_id = acc['account_id']
+        task_id = f"live_{account_id}"
+        name = f"实盘-{acc['name']}"
+        cron = acc.get('trigger_cron', '30 9 * * *')
+
+        # 用 partial 绑定 account_id 和 data_path
+        wrapped = partial(run_live, account_id, data_path)
+        add_func_job(task_id, name, wrapped, cron, data_path)
+        print(f"  [{task_id}] {name}  cron: {cron}")
+
+
 def main():
     args = _parse_args()
 
@@ -76,6 +103,9 @@ def main():
 
     # 注册内置任务
     _register_builtin_jobs(data_path, args.time)
+
+    # 注册实盘任务
+    _register_live_jobs(data_path)
 
     # 加载用户任务
     user_tasks = load_tasks(data_path)

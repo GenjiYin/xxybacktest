@@ -162,6 +162,26 @@ class QMTTrader:
             'total_asset':  float(asset.total_asset),
         }
 
+    def get_position(self, code: str) -> dict | None:
+        """
+        查询单只股票持仓，无持仓时返回 None。
+
+        参数:
+            code: 股票代码，如 '000001.SZ'
+
+        返回:
+            {
+                'volume':          int,    # 总持仓数量
+                'can_sell_volume': int,    # 可卖数量（T+1）
+                'cost_price':      float,  # 持仓均价
+                'last_price':      float,  # 最新价
+                'market_value':    float,  # 持仓市值
+            }
+            无持仓返回 None
+        """
+        positions = self.get_positions()
+        return positions.get(code)
+
     def get_positions(self) -> dict:
         """
         查询当前持仓。
@@ -220,6 +240,18 @@ class QMTTrader:
     # 下单
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _get_market_price_type(code: str) -> int:
+        """根据代码后缀返回对应市场的五档即成剩撤市价单类型（保证立刻成交）。"""
+        if code.endswith('.SH'):
+            return xtconstant.MARKET_SH_CONVERT_5_CANCEL
+        elif code.endswith('.SZ'):
+            return xtconstant.MARKET_SZ_CONVERT_5_CANCEL
+        elif code.endswith('.BJ'):
+            return xtconstant.MARKET_BEST
+        else:
+            return xtconstant.LATEST_PRICE
+
     def order_stock(self, code: str, volume: int, direction: str,
                     price_type: str = 'MARKET', price: float = 0.0) -> dict:
         """
@@ -229,7 +261,7 @@ class QMTTrader:
             code:       股票代码，如 '000001.SZ'
             volume:     下单数量（正整数，股）
             direction:  'BUY' | 'SELL'
-            price_type: 'MARKET'（市价）| 'FIX'（限价）
+            price_type: 'MARKET'（五档即成剩撤，保证立刻成交）| 'FIX'（限价）
             price:      限价单价格，市价单传 0.0
 
         返回:
@@ -254,7 +286,7 @@ class QMTTrader:
 
         # 报价类型映射
         if price_type == 'MARKET':
-            xt_price_type = xtconstant.LATEST_PRICE   # 最新价市价单
+            xt_price_type = self._get_market_price_type(code)
         elif price_type == 'FIX':
             xt_price_type = xtconstant.FIX_PRICE
         else:

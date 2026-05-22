@@ -247,7 +247,7 @@ def run_live(account_id: str, data_path="./data") -> dict:
 
 存储路径：
 ```
-data/simulation_results/accounts/live_001/
+data/live/accounts/live_001/
   daily_values.parquet   ← 每日总资产快照
   positions.parquet      ← 调仓后持仓
   orders.parquet         ← 订单流水
@@ -351,7 +351,7 @@ Web 上提交账户时根据 `account_type` 显示不同表单。
 
 ### 6.3 Web 展示（无需改动）
 
-`api.py`、`account.py` 读取 `simulation_results/accounts/{id}/*.parquet`，实盘账户按同样格式存储后，Web 端完全无感知，自动兼容。
+Web 层通过 `get_account_nav` / `get_account_positions` / `get_account_orders` 读取账户数据，这些函数自动从 `simulation_results/accounts/{id}/` 或 `live/accounts/{id}/` 查找 Parquet 文件。实盘账户按同样格式存入 `data/live/` 后，Web 端完全无感知，自动兼容。
 
 ---
 

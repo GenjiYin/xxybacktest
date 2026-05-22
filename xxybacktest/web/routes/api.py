@@ -3,7 +3,7 @@ import os
 from flask import Blueprint, jsonify, request
 import pandas as pd
 
-from xxybacktest.simulation.submitter import list_accounts, pause, resume, delete
+from xxybacktest.simulation.submitter import list_accounts, pause, resume, delete, update_account
 from xxybacktest.simulation.runner import get_account_nav, get_account_positions, get_account_orders
 
 api_bp = Blueprint('api', __name__)
@@ -159,6 +159,53 @@ def delete_account(account_id):
         return jsonify({'success': True, 'message': '账户已删除'})
     else:
         return jsonify({'success': False, 'message': '账户不存在或删除失败'}), 404
+
+
+@api_bp.route('/accounts/<account_id>', methods=['PUT'])
+def update_account_route(account_id):
+    """
+    更新账户配置和策略代码。
+
+    请求体(JSON):
+        {
+            "name": "新名称",
+            "initialize_code": "def initialize(ctx):\n    ctx.g['x'] = 1",
+            "handle_data_code": "def handle_data(ctx):\n    pass",
+            "trigger_cron": "30 10 * * *",
+            "qmt_path": "D:\\\\国金证券QMT交易端\\\\userdata_mini",
+            "live_account_id": "8881686799",
+            "execution_mode": "daily",
+            "rebalance_interval": 1
+        }
+
+    返回:
+        {
+            "success": true,
+            "account_id": "live_xxx",
+            "updated_fields": ["initialize_code", "trigger_cron"],
+            "cron_changed": true,
+            "scheduler_refreshed": true
+        }
+    """
+    data = request.get_json() or {}
+
+    result = update_account(
+        account_id=account_id,
+        data_path=DEFAULT_DATA_PATH,
+        name=data.get('name'),
+        initialize_code=data.get('initialize_code'),
+        handle_data_code=data.get('handle_data_code'),
+        trigger_cron=data.get('trigger_cron'),
+        qmt_path=data.get('qmt_path'),
+        live_account_id=data.get('live_account_id'),
+        execution_mode=data.get('execution_mode'),
+        rebalance_interval=data.get('rebalance_interval'),
+    )
+
+    if result['success']:
+        return jsonify(result)
+    else:
+        return jsonify(result), 404
 
 
 @api_bp.route('/portfolio/nav', methods=['POST'])

@@ -38,7 +38,7 @@
          │             │             │             │
          └─────────────┴──────┬──────┴─────────────┘
                               │
-                    simulation_results/accounts/{id}/*.parquet
+                    {simulation_results,live}/accounts/{id}/*.parquet
 
                               │
     ┌─────────────────────────┼─────────────────────────────────┐
@@ -98,9 +98,24 @@ class QMTTrader:
         }
         """
 
+    def get_position(self, code: str) -> dict | None:
+        """
+        查询单只股票持仓，无持仓时返回 None。
+        用于 trading.py 中交易函数实时对比当前持仓与目标持仓。
+
+        返回:
+            {
+                'volume': int,
+                'can_sell_volume': int,
+                'cost_price': float,
+                'last_price': float,
+                'market_value': float,
+            }
+        """
+
     def get_positions(self) -> dict:
         """
-        返回当前持仓：
+        返回全部当前持仓（过滤 volume=0）：
         {
             '000001.SZ': {
                 'volume': int,
@@ -196,18 +211,58 @@ for code, pos in trader.get_positions().items():
 与回测一样，所有交易函数通过 `live/runner.py` 用 lambda 绑定到 context 上，
 策略只调用 `context.order_target_percent(code, pct)`，不直接 import 本模块。
 
+**核心设计：持仓/资金始终以 QMT 为准，交易函数实时查询 QMT，不依赖 context 快照。**
+
+
+#### 3.3.1 实时刷新接口（策略可直接调用）
+
+```python
+def get_portfolio(context) -> dict:
+    """
+    从 QMT 实时拉取资金概况，同步到 context.portfolio，并返回 dict。
+    策略可直接调用 context.get_portfolio() 获取最新资金。
+    """
+
+def get_account_positions(context) -> dict:
+    """
+    从 QMT 实时拉取全部持仓，同步到 context.portfolio.positions，并返回 dict。
+    策略可直接调用 context.get_account_positions() 获取最新持仓。
+    """
+
+def _refresh_portfolio(context):
+    """
+    同时调用 get_portfolio + get_account_positions，刷新整个 context.portfolio。
+    runner.py 在 handle_data 执行完后统一调用一次。
+    """
+```
+
+**刷新后 context.portfolio 状态**：
+
+| 字段 | 数据来源 | 说明 |
+|------|---------|------|
+| `cash` | `trader.get_portfolio()['cash']` | 可用资金 |
+| `total_value` | `trader.get_portfolio()['total_asset']` | 总资产 |
+| `positions_value` | `trader.get_portfolio()['market_value']` | 持仓市值 |
+| `positions` | `trader.get_positions()` → Position 对象 | 全部持仓，volume=0 的已过滤 |
+
+**注意**：交易函数内部**不自动调用** `_refresh_portfolio`，以免 handle_data 执行期间 QMT 状态波动导致策略逻辑不一致。策略如需最新持仓/资金，显式调用 `context.get_account_positions()` / `context.get_portfolio()`。
+
+
+#### 3.3.2 交易函数（内部实时查 QMT）
+
 ```python
 def order_target_percent(security: str, percent: float, context) -> Order | None:
     """
     实盘版实现：
     1. 从 context._trader 取 QMTTrader
-    2. 用 trader.get_price() 取最新价，计算目标股数（100股取整）
-    3. 对比 context.portfolio.positions 中的当前持仓，算差值
-    4. 差值 > 0 → trader.order_stock(BUY)；差值 < 0 → trader.order_stock(SELL)
-    5. 等待 0.5 秒防爆单
-    6. 构造 Order 对象记录到 context.logs.order_list
-    7. 下单后调用 _refresh_portfolio 从 QMT 重新拉取资金/持仓更新 context
-    8. 返回 Order 对象
+    2. 用 trader.get_portfolio()['total_asset'] 取实时总资产
+    3. 用 trader.get_price() 取最新价，计算目标股数（100股取整）
+    4. 用 trader.get_position() 取该股票实时持仓，算差值
+    5. 差值 > 0 → trader.order_stock(BUY)；差值 < 0 → trader.order_stock(SELL)
+    6. 等待 0.5 秒防爆单
+    7. 构造 Order 对象记录到 context.logs.order_list
+    8. **不刷新 context.portfolio**（由 runner.py 在 handle_data 结束后统一刷新）
+    9. 返回 Order 对象
     """
 
 def order(security: str, amount: int, context) -> Order | None:
@@ -227,12 +282,10 @@ def order_sell(security: str, amount: int, context) -> Order | None:
 
 def inout_cash(cash_amount: float, context):
     """实盘不支持出入金，调用时记录 warning 并跳过。"""
-
-def _refresh_portfolio(context, trader: QMTTrader):
-    """下单后从 QMT 重新拉取资金和持仓，更新 context.portfolio。"""
 ```
 
-**runner.py 中的绑定方式（与 backtest.py 完全一致）**：
+
+#### 3.3.3 runner.py 中的绑定方式
 
 ```python
 from .trading import (
@@ -242,14 +295,18 @@ from .trading import (
     order_target_value as _order_target_value,
     order_target_percent as _order_target_percent,
     inout_cash as _inout_cash,
+    get_portfolio as _get_portfolio,
+    get_account_positions as _get_account_positions,
 )
 
-context.order_buy            = lambda code, amount:   _order_buy(code, amount, context)
-context.order_sell           = lambda code, amount:   _order_sell(code, amount, context)
-context.order_value          = lambda security, value: _order_value(security, value, context)
-context.order_target_value   = lambda security, value: _order_target_value(security, value, context)
-context.order_target_percent = lambda security, pct:   _order_target_percent(security, pct, context)
-context.inout_cash           = lambda cash_amount:     _inout_cash(cash_amount, context)
+context.order_buy            = lambda code, amount:     _order_buy(code, amount, context)
+context.order_sell           = lambda code, amount:     _order_sell(code, amount, context)
+context.order_value          = lambda security, value:  _order_value(security, value, context)
+context.order_target_value   = lambda security, value:  _order_target_value(security, value, context)
+context.order_target_percent = lambda security, pct:    _order_target_percent(security, pct, context)
+context.inout_cash           = lambda cash_amount:      _inout_cash(cash_amount, context)
+context.get_portfolio        = lambda:                  _get_portfolio(context)
+context.get_account_positions = lambda:                 _get_account_positions(context)
 ```
 
 ---
@@ -302,14 +359,19 @@ def run_live(account_id: str, data_path: str = "./data") -> dict:
    for func in daily_callbacks:
        func(ctx)
    策略内部自己判断是否下单、下什么单
+   策略可显式调用 context.get_portfolio() / get_account_positions() 获取实时数据
 
-8. 保存结果
+8. 刷新 portfolio（handle_data 结束后统一执行一次）
+   调用 _refresh_portfolio(ctx)，从 QMT 拉取最新资金和持仓更新 context
+   后续 recorder.py 保存结果时使用刷新后的 context
+
+9. 保存结果
    _save_live_results(account_id, ctx, data_path, trader)
 
-9. 保存策略状态（关键！）
-   将 ctx.g 序列化，更新到 live_schedule.json
+10. 保存策略状态（关键！）
+    将 ctx.g 序列化，更新到 live_schedule.json
 
-10. 返回结果
+11. 返回结果
 ```
 
 **防并发设计**：

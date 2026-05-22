@@ -62,8 +62,14 @@ def close_db(path: str = None):
     path = str(Path(path).resolve())
 
     if path in _db_cache:
-        _db_cache[path].close()
-        del _db_cache[path]
+        try:
+            _db_cache[path].close()
+        except Exception:
+            pass
+        try:
+            del _db_cache[path]
+        except KeyError:
+            pass
 
 
 def close_all():
