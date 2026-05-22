@@ -10,6 +10,7 @@
 """
 
 import inspect
+import json
 import os
 import shutil
 import uuid
@@ -304,7 +305,14 @@ def delete(account_id: str, data_path: str = "./data") -> bool:
 
         # 获取账户自己的 data_path（可能和传入的不同）
         account_data_path = df.loc[mask, "data_path"].values[0]
-        account_type = df.loc[mask, "account_type"].values[0] if "account_type" in df.columns else "sim"
+        # 兼容处理：account_type 可能是 nan/None，用 account_id 前缀兜底
+        account_type = "sim"
+        if "account_type" in df.columns:
+            val = df.loc[mask, "account_type"].values[0]
+            if pd.notna(val) and val is not None:
+                account_type = str(val).strip()
+        # 双重保险：live_ 前缀的账户一律按实盘清理
+        is_live = (account_type == "live") or account_id.startswith("live_")
 
         # 删除账户配置
         df = df[~mask]
@@ -339,34 +347,48 @@ def delete(account_id: str, data_path: str = "./data") -> bool:
             shutil.rmtree(account_dir)
 
         # ── 实盘账户额外清理 ──
-        if account_type == "live":
+        print(f"[DEBUG] account_type={account_type!r}, is_live={is_live}, account_id={account_id}")
+        if is_live:
             # 1. 从 APScheduler 移除定时 job
             try:
                 from .scheduler import remove_job
                 remove_job(f"live_{account_id}")
-            except Exception:
-                pass
+                print(f"[DEBUG] APScheduler job live_{account_id} 已移除")
+            except Exception as e:
+                print(f"[DEBUG] APScheduler 移除失败: {e}")
 
             # 2. 清理 live_schedule.json
             try:
                 live_schedule_path = Path(account_data_path) / "live" / "live_schedule.json"
+                print(f"[DEBUG] live_schedule_path = {live_schedule_path}")
                 if live_schedule_path.exists():
                     with open(live_schedule_path, "r", encoding="utf-8") as f:
                         schedule_data = json.load(f)
+                    print(f"[DEBUG] live_schedule.json keys: {list(schedule_data.keys())}")
                     if account_id in schedule_data:
                         del schedule_data[account_id]
                         with open(live_schedule_path, "w", encoding="utf-8") as f:
                             json.dump(schedule_data, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
+                        print(f"[DEBUG] live_schedule.json 已删除 {account_id}")
+                    else:
+                        print(f"[DEBUG] account_id {account_id} 不在 live_schedule.json 中")
+                else:
+                    print(f"[DEBUG] live_schedule.json 不存在")
+            except Exception as e:
+                print(f"[DEBUG] live_schedule.json 清理失败: {e}")
+                import traceback
+                traceback.print_exc()
 
             # 3. 清理实盘结果目录
             try:
                 live_account_dir = Path(account_data_path) / "live" / "accounts" / account_id
                 if live_account_dir.exists():
                     shutil.rmtree(live_account_dir)
-            except Exception:
-                pass
+                    print(f"[DEBUG] 实盘结果目录已删除: {live_account_dir}")
+                else:
+                    print(f"[DEBUG] 实盘结果目录不存在: {live_account_dir}")
+            except Exception as e:
+                print(f"[DEBUG] 实盘结果目录清理失败: {e}")
 
         # 4. 清理任务日志（模拟+实盘通用）
         try:
@@ -388,9 +410,16 @@ def delete(account_id: str, data_path: str = "./data") -> bool:
         print(f"[{type_label}] 账户已删除: {account_id}")
         return True
     finally:
-        close_db(data_path)
+        # 关键修复：每个 close_db 独立 try-except，一个失败不影响另一个
+        try:
+            close_db(data_path)
+        except Exception:
+            pass
         if sim_path is not None:
-            close_db(sim_path)
+            try:
+                close_db(sim_path)
+            except Exception:
+                pass
 
 
 def update_account(
