@@ -1,6 +1,6 @@
 # xxybacktest
 
-量化回测模拟实盘一体化框架，目前支持日频策略回测，内置交易规则引擎、分红除权处理、绩效分析与可视化。（期货期权可转债正在规划中，先把版图拼起来, 再谈高频）
+量化回测+模拟交易+实盘交易一体化框架，目前支持日频策略回测，内置交易规则引擎、分红除权处理、绩效分析与可视化，实盘通过 QMT 对接真实账户自动下单。（期货期权可转债正在规划中，先把版图拼起来, 再谈高频）
 
 ## 安装
 
@@ -461,12 +461,23 @@ result = run_backtest(
 │   策略提交   │────▶│  每日重跑   │────▶│  Web 展示   │
 │  submit()   │     │  run_all()  │     │  Flask UI   │
 └─────────────┘     └─────────────┘     └─────────────┘
-                            │
-                            ▼
-                     ┌─────────────┐
-                     │ Plombery定时 │
-                     │  每天 22:00  │
-                     └─────────────┘
+        │
+        ├──────────────────────────────┐
+        │                              │
+        ▼                              ▼
+┌───────────────┐            ┌───────────────┐
+│   模拟账户     │            │   实盘账户     │
+│  sim_xxx      │            │  live_xxx     │
+│  APScheduler  │            │  APScheduler  │
+│  每天 22:00   │            │  trigger_cron │
+└───────────────┘            └───────┬───────┘
+                                     │
+                                     ▼
+                              ┌───────────────┐
+                              │  QMTTrader    │
+                              │  xtquant      │
+                              │  真实委托      │
+                              └───────────────┘
 ```
 
 ## 快速开始
@@ -497,6 +508,38 @@ account_id = submit(
 
 print(f"账户已创建: {account_id}")
 ```
+
+#### 注册实盘账户（对接 QMT）
+
+```python
+from xxybacktest.simulation import submit
+
+# 实盘策略代码与回测完全一致，无需修改
+def initialize(context):
+    context.g.setdefault("target_pct", 0.05)
+    context.g.setdefault("run_count", 0)
+
+def handle_data(context):
+    context.g["run_count"] += 1
+    context.order_target_percent("600519.SH", context.g["target_pct"])
+
+# 提交为实盘账户
+account_id = submit(
+    name="茅台实盘策略",
+    initialize=initialize,
+    handle_data=handle_data,
+    account_type="live",                         # 指定为实盘
+    live_account_id="8881686799",                # QMT 资金账号
+    qmt_path=r"D:\\国金证券QMT交易端\\userdata_mini",
+    trigger_cron="30 9 * * *",                   # 每天 9:30 触发调仓
+    asset_type="stock",
+    data_path="./data",
+)
+
+print(f"实盘账户已创建: {account_id}")
+```
+
+**注意**：实盘注册时会自动连接 QMT 读取总资产作为 `initial_cash`，你传入的 `capital` 会被覆盖。策略代码中不要引用外部全局变量（实盘用 `exec()` 加载源码，外部变量不可见）。
 
 ### 2. 准备数据更新脚本
 
@@ -548,18 +591,35 @@ python run_simulation.py --data /path/to/your/data --data-renew /path/to/my_data
 
 ### 数据流转
 
+**模拟账户**：
 ```
-Day 1: submit() 提交策略 ──▶ 创建账户，状态 running
+Day 1: submit() 提交策略 ──▶ 创建 sim_xxx 账户，状态 running
        │
-Day N: Plombery 每天 22:00 触发
+Day N: APScheduler 每天 22:00 触发
        │
        ├─▶ Task 1: 更新行情数据 (data_renew.py)
        │
-       └─▶ Task 2: 重跑所有 running 账户的回测
+       └─▶ Task 2: 重跑所有 running 模拟账户的回测
                │
                ├─▶ 从 start_date 到 today 完整回测
-               ├─▶ 保存净值、持仓、订单到 xxydb
+               ├─▶ 保存净值、持仓、订单（每账户独立 Parquet）
                └─▶ 生成最新一天的交易信号
+```
+
+**实盘账户**：
+```
+Day 1: submit(account_type="live") ──▶ 创建 live_xxx 账户，自动注册 APScheduler job
+       │
+Day N: APScheduler 按 trigger_cron 触发
+       │
+       └─▶ run_live(account_id)
+               │
+               ├─▶ 连接 QMT，读取持仓和总资产
+               ├─▶ 从数据库加载最新策略源码
+               ├─▶ 执行 initialize（首次）+ handle_data
+               ├─▶ 下单函数直接发往 QMT（真实委托）
+               ├─▶ 保存结果到 data/live/accounts/live_xxx/
+               └─▶ 持久化 context.g 到 live_schedule.json
 ```
 
 ## API 参考
@@ -570,33 +630,48 @@ Day N: Plombery 每天 22:00 触发
 from xxybacktest.simulation import submit
 
 account_id = submit(
-    name="策略名称",           # 必填：账户显示名称
-    initialize=initialize,    # 必填：初始化函数
-    handle_data=handle_data,  # 必填：策略函数
-    capital=100000,           # 可选：初始资金，默认 10万
-    start_date="2025-01-01",  # 可选：开始日期，默认今天
-    asset_type="stock",       # 可选：stock/fund，默认 stock
-    benchmark="000001.SH",    # 可选：基准指数，默认 000001.SH
+    name="策略名称",            # 必填：账户显示名称
+    initialize=initialize,     # 必填：初始化函数
+    handle_data=handle_data,   # 可选：策略函数
+    capital=100000,            # 可选：初始资金，默认 10万
+    start_date="2025-01-01",   # 可选：开始日期，默认今天
+    asset_type="stock",        # 可选：stock/fund，默认 stock
+    benchmark="000001.SH",     # 可选：基准指数，默认 000001.SH
+    run_now=True,              # 可选：注册后立即运行回测（仅模拟账户）
+    # --- 实盘专属参数 ---
+    account_type="sim",        # 可选：'sim' 模拟 / 'live' 实盘
+    live_account_id=None,      # 实盘必填：QMT 资金账号
+    qmt_path=None,             # 实盘必填：QMT 客户端安装目录
+    trigger_cron="30 9 * * *", # 可选：实盘定时触发 cron，默认 9:30
+    execution_mode="daily",    # 可选：'daily' 每日 / 'periodic' 按周期
+    rebalance_interval=1,      # 可选：调仓周期天数（periodic 模式生效）
 )
 ```
 
-**返回值**: `account_id` (str) - 账户唯一标识，格式 `sim_YYYYMMDD_HHMMSS_XXX`
+**返回值**: `account_id` (str) - 账户唯一标识，格式 `sim_YYYYMMDD_HHMMSS_XXX`（模拟）或 `live_YYYYMMDD_HHMMSS_XXX`（实盘）
 
-### pause() / resume() / delete() - 账户管理
+### pause() / resume() / delete() / update_account() - 账户管理
 
 ```python
-from xxybacktest.simulation import pause, resume, delete, list_accounts
+from xxybacktest.simulation import pause, resume, delete, update_account, list_accounts
 
-# 暂停账户（停止每日重跑，数据保留）
+# 暂停账户（停止每日重跑/调仓，数据保留）
 pause(account_id)
 
 # 恢复账户
 resume(account_id)
 
-# 删除账户（数据彻底删除，不可恢复）
+# 删除账户（数据彻底删除，不可恢复。实盘会同步清理 APScheduler job 和 live_schedule.json）
 delete(account_id)
 
-# 查看所有账户
+# 修改策略或配置（热更新，无需重启服务）
+update_account(
+    account_id,
+    initialize_code="def initialize(ctx):\n    ctx.g['target'] = 0.05",
+    trigger_cron="0 10 * * *",  # 改为 10:00 触发
+)
+
+# 查看所有账户（含模拟+实盘）
 accounts = list_accounts()
 for acc in accounts:
     print(f"{acc['account_id']}: {acc['name']} ({acc['status']})")
@@ -621,6 +696,7 @@ for account_id, result in results.items():
 
 - **汇总统计**: 总账户数、运行中数量、所有策略累计收益率之和
 - **账户卡片**: 显示名称、累计收益率、最大回撤、状态、迷你净值曲线
+- **实盘标识**: 实盘账户卡片带红色"实盘"标签和红色左边框，与模拟账户区分
 - **排序**: 支持按收益率、最大回撤、创建时间排序
 
 ### 账户详情页 (Account Detail)
@@ -643,32 +719,53 @@ GET  /api/accounts/<id>/orders        成交记录数据
 POST /api/accounts/<id>/pause         暂停账户
 POST /api/accounts/<id>/resume        恢复账户
 DELETE /api/accounts/<id>             删除账户
+PUT  /api/accounts/<id>               更新账户配置/策略代码（热更新）
 ```
 
 ## 数据存储
 
-模拟交易数据存储在 `./data/simulation_results/` 目录：
+### 模拟交易数据
+
+模拟账户结果存储在 `./data/simulation_results/` 目录（每账户独立文件，支持并行）：
 
 ```
 data/
 ├── simulation_results/
 │   ├── simulation_accounts.parquet       # 账户配置表
-│   ├── simulation_daily_values.parquet   # 每日净值
-│   ├── simulation_positions.parquet      # 每日持仓快照
-│   └── simulation_orders.parquet         # 全部订单
+│   └── accounts/
+│       ├── sim_20250101_120000_xxx/
+│       │   ├── daily_values.parquet      # 每日净值
+│       │   ├── positions.parquet         # 每日持仓快照
+│       │   └── orders.parquet            # 全部订单
+│       └── ...
 ```
 
-**注意**: 所有数据使用 xxydb 格式存储（Parquet + DuckDB），可直接用 pandas 读取：
+### 实盘交易数据
+
+实盘账户结果存储在 `./data/live/` 目录：
+
+```
+data/
+├── live/
+│   ├── live_schedule.json                # 实盘调度配置 + 策略状态持久化
+│   └── accounts/
+│       ├── live_20250101_120000_xxx/
+│       │   ├── daily_values.parquet      # 每日净值
+│       │   ├── positions.parquet         # 每日持仓快照
+│       │   └── orders.parquet            # 全部订单
+│       └── ...
+```
+
+**注意**: 数据使用 Parquet 格式存储，可直接用 pandas 读取：
 
 ```python
 import pandas as pd
 
-# 读取某账户的净值数据
-nav = pd.read_parquet("data/simulation_results/simulation_daily_values.parquet")
-nav = nav[nav['account_id'] == 'your_account_id']
+# 读取模拟账户净值（每账户独立文件）
+nav = pd.read_parquet("data/simulation_results/accounts/sim_xxx/daily_values.parquet")
 
-# 读取订单
-orders = pd.read_parquet("data/simulation_results/simulation_orders.parquet")
+# 读取实盘账户持仓
+positions = pd.read_parquet("data/live/accounts/live_xxx/positions.parquet")
 ```
 
 ## 部署指南
@@ -731,8 +828,9 @@ nohup xxy-sim --data /path/to/data --data-renew /path/to/script.py > simulation.
 
 ## 注意事项
 
-1. **数据依赖**: 模拟交易依赖本地行情数据，通过 `--data` 参数指定数据目录路径
-2. **状态管理**: 只有 `status=running` 的账户会被每日重跑
+1. **数据依赖**: 模拟交易和实盘均依赖本地行情数据，通过 `--data` 参数指定数据目录路径
+2. **状态管理**: 只有 `status=running` 的账户会被每日重跑/调仓
 3. **全量重跑**: 当前实现每天从 `start_date` 到当天完整重跑（阶段六将支持增量）
-4. **代码变更**: 如需修改策略，需删除旧账户重新 submit（策略源码存于数据库，修改后不会自动同步）
-5. **性能预估**: 账户数量 × 历史天数 = 每日处理的事件数。例如 10 个账户 × 2 年历史 ≈ 5000 个交易日事件，通常几分钟内完成
+4. **策略热更新**: 调用 `update_account()` 修改策略代码或 cron 后，下次定时触发自动生效，无需重启服务，无需删除重建
+5. **实盘全局变量**: 实盘策略用 `exec()` 在独立模块加载源码，外部全局变量不可见。所有配置应在函数内部硬编码，或通过 `context.g` 持久化
+6. **性能预估**: 账户数量 × 历史天数 = 每日处理的事件数。模拟账户使用 `ProcessPoolExecutor` 并行执行，实盘账户通过 APScheduler 独立调度
