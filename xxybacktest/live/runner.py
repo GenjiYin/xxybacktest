@@ -128,6 +128,13 @@ def run_live(account_id: str, data_path: str = "./data") -> dict:
         _update_schedule(account_id, {"running": False}, account_data_path)
         return {"account_id": account_id, "status": "error", "reason": "缺少 QMT 配置"}
 
+    # 预检测 QMT 登录状态，避免未登录时卡在重试循环中
+    from .trader import check_qmt_login
+    if not check_qmt_login(qmt_path, live_account_id):
+        print("[错误] 没有登录qmt")
+        _update_schedule(account_id, {"running": False}, account_data_path)
+        raise RuntimeError("没有登录qmt")
+
     trader = None
     try:
         trader = QMTTrader(qmt_path, live_account_id)

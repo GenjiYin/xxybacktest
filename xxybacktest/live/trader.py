@@ -33,6 +33,39 @@ class QMTOrderError(Exception):
     pass
 
 
+def check_qmt_login(qmt_path: str, account_id: str) -> bool:
+    """
+    快速检测 QMT 客户端是否已登录（只做一次连接尝试，不重试）。
+    返回 True 表示已登录，False 表示未登录或 xtquant 未安装。
+    """
+    if not _XTQUANT_AVAILABLE:
+        return False
+
+    session_id = random.randint(100000, 999999)
+    trader = None
+    try:
+        trader = XtQuantTrader(qmt_path, session_id)
+        callback = XtQuantTraderCallback()
+        trader.register_callback(callback)
+        trader.start()
+
+        ret = trader.connect()
+        if ret != 0:
+            return False
+
+        acc = StockAccount(account_id, 'STOCK')
+        asset = trader.query_stock_asset(acc)
+        return asset is not None
+    except Exception:
+        return False
+    finally:
+        if trader is not None:
+            try:
+                trader.stop()
+            except Exception:
+                pass
+
+
 def _require_xtquant():
     if not _XTQUANT_AVAILABLE:
         raise ImportError(

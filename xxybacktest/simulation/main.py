@@ -7,8 +7,6 @@
 import argparse
 import os
 import sys
-from functools import partial
-
 
 def _parse_args():
     parser = argparse.ArgumentParser(description="模拟交易服务")
@@ -42,24 +40,28 @@ def _validate_time(time_str):
 
 
 def _register_builtin_jobs(data_path, time_str):
-    """注册内置任务：每日模拟交易"""
+    """注册内置任务：每日模拟交易。使用包装函数，每次执行时自动 reload 最新代码。"""
     from xxybacktest.simulation.scheduler import add_func_job
-    from xxybacktest.simulation.runner import run_all
 
     parts = time_str.split(":")
     h = int(parts[0])
     m = int(parts[1])
     cron = f"{m} {h} * * *"
 
-    add_func_job("builtin_run_simulation", "模拟交易", run_all, cron, data_path)
+    def _run_all_wrapper():
+        import importlib
+        import xxybacktest.simulation.runner as _sim_runner
+        importlib.reload(_sim_runner)
+        return _sim_runner.run_all(data_path=data_path)
+
+    add_func_job("builtin_run_simulation", "模拟交易", _run_all_wrapper, cron, data_path)
     print(f"[内置任务] 模拟交易 已注册，触发时间: {time_str} (cron: {cron})")
 
 
 def _register_live_jobs(data_path):
-    """注册实盘任务：为每个运行中的实盘账户注册独立 cron job。"""
+    """注册实盘任务：为每个运行中的实盘账户注册独立 cron job。使用包装函数，每次执行时自动 reload 最新代码。"""
     from xxybacktest.simulation.scheduler import add_func_job
     from xxybacktest.simulation.submitter import list_accounts
-    from xxybacktest.live.runner import run_live
 
     accounts = list_accounts(status='running', data_path=data_path)
     live_accounts = [a for a in accounts if a.get('account_type') == 'live']
@@ -75,8 +77,15 @@ def _register_live_jobs(data_path):
         name = f"实盘-{acc['name']}"
         cron = acc.get('trigger_cron', '30 9 * * *')
 
-        # 用 partial 绑定 account_id 和 data_path
-        wrapped = partial(run_live, account_id, data_path)
+        def _make_live_runner(aid, dp):
+            def _run():
+                import importlib
+                import xxybacktest.live.runner as _live_runner
+                importlib.reload(_live_runner)
+                return _live_runner.run_live(aid, dp)
+            return _run
+
+        wrapped = _make_live_runner(account_id, data_path)
         add_func_job(task_id, name, wrapped, cron, data_path)
         print(f"  [{task_id}] {name}  cron: {cron}")
 

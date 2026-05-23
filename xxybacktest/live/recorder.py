@@ -42,7 +42,7 @@ def _save_live_results(account_id: str, context, data_path: str):
     )
 
     # ------------------------------------------------------------------
-    # 1. daily_values — 每天追加一行
+    # 1. daily_values — 按日期去重，同一天的重复运行只保留最新结果
     # ------------------------------------------------------------------
     nav_path = os.path.join(account_dir, "daily_values.parquet")
 
@@ -62,6 +62,9 @@ def _save_live_results(account_id: str, context, data_path: str):
         daily_return = 0.0
 
     new_row = pd.DataFrame([{"date": today, "nav": nav, "daily_return": daily_return}])
+
+    # 去重：删除已有同日期记录，追加最新结果
+    df_nav = df_nav[df_nav["date"] != today]
     df_nav = pd.concat([df_nav, new_row], ignore_index=True)
     df_nav.to_parquet(nav_path, index=False)
 
@@ -98,7 +101,7 @@ def _save_live_results(account_id: str, context, data_path: str):
     df_pos.to_parquet(pos_path, index=False)
 
     # ------------------------------------------------------------------
-    # 3. orders — 有订单时追加
+    # 3. orders — 有订单时追加（按日期去重，同一天的重复运行只保留最新）
     # ------------------------------------------------------------------
     order_path = os.path.join(account_dir, "orders.parquet")
 
@@ -127,6 +130,8 @@ def _save_live_results(account_id: str, context, data_path: str):
         df_new = pd.DataFrame(order_records)
         if os.path.exists(order_path):
             df_existing = pd.read_parquet(order_path)
+            # 去重：删除已有同日期记录，追加最新结果
+            df_existing = df_existing[df_existing["date"] != today]
             df_orders = pd.concat([df_existing, df_new], ignore_index=True)
         else:
             df_orders = df_new

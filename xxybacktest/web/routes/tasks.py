@@ -116,3 +116,16 @@ def tasks_api_history(task_id):
         return jsonify({"success": True, "history": history})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@tasks_bp.route("/tasks/api/reregister-all", methods=["POST"])
+def tasks_api_reregister_all():
+    """重新注册所有内置任务（改完代码后调用，无需重启服务）。"""
+    try:
+        from xxybacktest.simulation.main import _register_builtin_jobs, _register_live_jobs
+        time_str = os.environ.get("XXY_TRIGGER_TIME", "22:00")
+        _register_builtin_jobs(_data_path(), time_str)
+        _register_live_jobs(_data_path())
+        return jsonify({"success": True, "message": "所有内置任务已重新注册，新代码将生效"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

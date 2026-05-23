@@ -86,6 +86,30 @@ def run_backtest(
     context.portfolio.previous_value = capital
     context.portfolio.starting_cash = capital
 
+    # 绑定与实盘兼容的持仓/资金查询接口，确保同一套策略代码在回测中也能运行
+    def _get_portfolio():
+        p = context.portfolio
+        return {
+            'cash': float(p.cash),
+            'frozen_cash': float(p.locked_cash),
+            'market_value': float(p.positions_value),
+            'total_asset': float(p.total_value),
+        }
+    context.get_portfolio = _get_portfolio
+
+    def _get_account_positions():
+        result = {}
+        for code, pos in context.portfolio.positions.items():
+            result[code] = {
+                'volume': int(pos.amount),
+                'can_sell_volume': int(pos.enable_amount),
+                'cost_price': float(pos.cost_basis),
+                'last_price': float(pos.last_sale_price),
+                'market_value': float(pos.total_value),
+            }
+        return result
+    context.get_account_positions = _get_account_positions
+
     if benchmark is None:
         benchmark = "000001.SH"
 
