@@ -21,14 +21,18 @@ from ..backtest import run_backtest
 def _resolve_account_path(account_id: str, filename: str, data_path: str = "./data") -> str | None:
     """
     查找账户数据文件路径。
-    优先查 simulation_results/accounts/，再查 live/accounts/。
+    同时查 simulation_results/accounts/ 和 live/accounts/，
+    返回修改时间最新的文件（避免回测旧数据覆盖实盘新数据）。
     都找不到返回 None。
     """
+    paths = []
     for subdir in ("simulation_results", "live"):
         path = os.path.join(data_path, subdir, "accounts", account_id, filename)
         if os.path.exists(path):
-            return path
-    return None
+            paths.append((path, os.path.getmtime(path)))
+    if not paths:
+        return None
+    return max(paths, key=lambda x: x[1])[0]
 
 
 def _load_func(code: str, func_name: str = "user_func") -> Callable:
@@ -188,6 +192,10 @@ def run_single(account_id: str, end_date: Optional[str] = None, data_path: str =
     if account['status'] != 'running':
         print(f"[跳过] 账户 {account_id} 状态为 {account['status']}，不参与回测")
         return {'account_id': account_id, 'status': 'skipped', 'reason': 'not_running'}
+
+    if account.get('account_type') == 'live':
+        print(f"[跳过] 账户 {account_id} 为实盘账户，不参与模拟回测")
+        return {'account_id': account_id, 'status': 'skipped', 'reason': 'live_account'}
 
     # 使用账户自己的 data_path
     account_data_path = account.get('data_path', data_path)
