@@ -59,6 +59,7 @@ def create_live_context(account: dict, trader: QMTTrader,
     ctx.trade.asset_type = account.get('asset_type', 'stock')
     ctx.trade.benchmark  = account.get('benchmark', '000300.SH')
     ctx.trade.start_time = account.get('start_date', '')
+    ctx.trade.end_time   = datetime.now().strftime("%Y-%m-%d")
 
     # ------------------------------------------------------------------
     # 数据路径
