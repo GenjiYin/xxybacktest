@@ -503,9 +503,12 @@ resume(account_id, data_path="./data")
 delete(account_id, data_path="./data")
 
 # 修改账户策略或配置（修改后下次定时触发自动生效，无需重启）
+def initialize(ctx):
+    ctx.g.setdefault('x', 1)
+
 update_account(
     account_id,
-    initialize_code="def initialize(ctx):\n    ctx.g['x'] = 1",
+    initialize=initialize,
     trigger_cron="30 10 * * *",
     data_path="./data",
 )
@@ -600,11 +603,17 @@ if context.g["signal"] == "buy":
         <p><code>update_account()</code> 支持修改策略代码、cron 表达式、QMT 配置等，修改后下次定时触发自动生效，无需重启 <code>xxy-sim</code>。</p>
         <pre><code>from xxybacktest.simulation import update_account
 
-# 修改策略代码
+# 修改策略代码（传入函数对象，自动提取源码）
+def initialize(ctx):
+    ctx.g.setdefault('target', 0.05)
+
+def handle_data(ctx):
+    ctx.order_target_percent('600519.SH', ctx.g['target'])
+
 update_account(
     "live_20260522_111635_7b6e30",
-    initialize_code="def initialize(ctx):\n    ctx.g['target'] = 0.05",
-    handle_data_code="def handle_data(ctx):\n    ctx.order_target_percent('600519.SH', ctx.g['target'])",
+    initialize=initialize,
+    handle_data=handle_data,
     data_path="./data",
 )
 
