@@ -322,6 +322,10 @@ def run_all(end_date: Optional[str] = None, data_path: str = "./data") -> list:
     print(f"[每日重跑完成] 成功: {success_count}, 失败: {error_count}, 跳过: {skip_count}")
     print(f"{'='*60}")
 
+    # 若全部失败（有错误且无一成功），抛异常让调度器感知
+    if error_count > 0 and success_count == 0:
+        raise RuntimeError(f"所有 {error_count} 个账户执行失败")
+
     return results
 
 

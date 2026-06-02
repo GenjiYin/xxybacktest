@@ -92,6 +92,90 @@
         background: #4e4e4e;
         color: white;
     }
+    .btn-source-toggle {
+        padding: 5px 14px;
+        border-radius: 4px;
+        font-size: 13px;
+        background: #4e4e4e;
+        color: #ccc;
+        border: 1px solid #555;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .btn-source-toggle:hover {
+        background: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+    .btn-source-toggle.active {
+        background: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+    .source-panel {
+        display: none;
+        background: #1e1e1e;
+        border-bottom: 1px solid #3e3e3e;
+        max-height: 55vh;
+        overflow-y: auto;
+        flex-shrink: 0;
+    }
+    .source-panel.visible {
+        display: block;
+    }
+    .source-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 24px;
+        border-bottom: 1px solid #3e3e3e;
+        font-size: 13px;
+        color: #999;
+    }
+    .source-toolbar .source-meta {
+        display: flex;
+        gap: 12px;
+    }
+    .source-toolbar .source-meta span {
+        background: #2d2d2d;
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+    .copy-source-btn {
+        padding: 4px 12px;
+        border: 1px solid #555;
+        background: #3e3e3e;
+        color: #ccc;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    .copy-source-btn:hover {
+        border-color: #667eea;
+        color: #667eea;
+    }
+    .source-code-block {
+        padding: 16px 24px;
+        font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #d4d4d4;
+        white-space: pre;
+        overflow-x: auto;
+    }
+    .source-section-title {
+        font-size: 12px;
+        color: #999;
+        padding: 8px 24px 0 24px;
+        border-top: 1px solid #3e3e3e;
+    }
+    .source-empty {
+        padding: 40px 24px;
+        text-align: center;
+        color: #666;
+        font-style: italic;
+    }
     .log-pre {
         font-family: 'SF Mono', Monaco, 'Courier New', monospace;
         font-size: 13px;
@@ -125,9 +209,12 @@
       <span class="time-display" id="currentTime">--</span>
       <div style="display:flex;align-items:center;gap:12px;">
         <span class="status-badge" id="currentStatus">--</span>
+        <button class="btn-source-toggle" id="sourceToggleBtn" onclick="toggleSource()">查看源码</button>
         <a href="/tasks" class="btn-back">返回</a>
       </div>
     </div>
+    <!-- 源码面板 -->
+    <div class="source-panel" id="sourcePanel"></div>
     <div style="flex: 1; overflow-y: auto; background: #1e1e1e;" id="logBody">
       <pre class="log-pre"><span class="empty-msg">请选择左侧执行时间</span></pre>
     </div>
@@ -143,9 +230,23 @@
 
     function parseLogStatus(content) {
         if (!content) return 'unknown';
-        if (content.includes('结果: 成功')) return 'success';
-        if (content.includes('结果: 失败')) return 'failed';
-        if (content.includes('异常:')) return 'error';
+
+        // 从末尾往前找最后一个明确的状态标记
+        const lines = content.split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i].trim();
+            if (line.includes('结果: 成功')) return 'success';
+            if (line.includes('结果: 失败')) return 'failed';
+            if (line.includes('异常:')) return 'error';
+        }
+
+        // 兜底：检测到 Traceback / Error 关键字
+        if (content.includes('Traceback (most recent call last):') ||
+            content.includes('Error:') ||
+            content.includes('[ERROR]')) {
+            return 'error';
+        }
+
         if (content.includes('===== 任务开始')) return 'running';
         return 'unknown';
     }
@@ -236,6 +337,84 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // ---------- 源码查看 ----------
+    let sourceData = null;
+
+    async function loadSource() {
+        if (sourceData) return;
+        try {
+            const resp = await fetch(`/tasks/api/source/${TASK_ID}`);
+            if (!resp.ok) return;
+            sourceData = await resp.json();
+        } catch (e) {
+            console.error('加载源码失败:', e);
+        }
+    }
+
+    function toggleSource() {
+        const panel = document.getElementById('sourcePanel');
+        const btn = document.getElementById('sourceToggleBtn');
+        panel.classList.toggle('visible');
+        btn.classList.toggle('active');
+        if (panel.classList.contains('visible')) {
+            btn.textContent = '收起源码';
+            if (!sourceData) loadSource().then(renderSource);
+        } else {
+            btn.textContent = '查看源码';
+        }
+    }
+
+    function renderSource() {
+        const panel = document.getElementById('sourcePanel');
+        if (!sourceData) {
+            panel.innerHTML = '<div class="source-empty">无法加载源码</div>';
+            return;
+        }
+
+        let html = '';
+        // 工具栏：元信息 + 复制按钮
+        const typeLabel = sourceData.type === 'live' ? '实盘策略' : sourceData.type === 'builtin' ? '内置函数' : '脚本文件';
+        const metaItems = [];
+        if (sourceData.file) metaItems.push(`文件: ${sourceData.file}`);
+        if (sourceData.cron) metaItems.push(`cron: ${sourceData.cron}`);
+        if (sourceData.trigger_cron) metaItems.push(`cron: ${sourceData.trigger_cron}`);
+        if (sourceData.execution_mode) metaItems.push(`模式: ${sourceData.execution_mode}`);
+        if (sourceData.rebalance_interval) metaItems.push(`调仓周期: ${sourceData.rebalance_interval}天`);
+        if (sourceData.created_at) metaItems.push(`创建: ${sourceData.created_at}`);
+
+        const metaHtml = metaItems.length ? '<div class="source-meta">' + metaItems.map(m => `<span>${escapeHtml(m)}</span>`).join('') + '</div>' : '';
+        html += `
+            <div class="source-toolbar">
+                ${metaHtml}
+                <span style="color:#888;">${typeLabel}</span>
+            </div>
+        `;
+
+        // 实盘策略：分两个代码块
+        if (sourceData.type === 'live') {
+            if (sourceData.initialize_code) {
+                html += `<div class="source-section-title">initialize 函数</div>`;
+                html += `<pre class="source-code-block">${escapeHtml(sourceData.initialize_code)}</pre>`;
+            }
+            if (sourceData.handle_data_code) {
+                html += `<div class="source-section-title">handle_data 函数</div>`;
+                html += `<pre class="source-code-block">${escapeHtml(sourceData.handle_data_code)}</pre>`;
+            }
+            if (!sourceData.initialize_code && !sourceData.handle_data_code) {
+                html += `<div class="source-empty">暂无源码记录</div>`;
+            }
+        } else {
+            // 内置 / 脚本
+            if (sourceData.code) {
+                html += `<pre class="source-code-block">${escapeHtml(sourceData.code)}</pre>`;
+            } else {
+                html += `<div class="source-empty">暂无源码</div>`;
+            }
+        }
+
+        panel.innerHTML = html;
     }
 
     loadData();

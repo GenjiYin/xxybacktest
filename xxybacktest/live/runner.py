@@ -259,7 +259,7 @@ def run_live(account_id: str, data_path: str = "./data") -> dict:
             "last_error": str(e),
             "last_error_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, account_data_path)
-        return {"account_id": account_id, "status": "error", "reason": str(e)}
+        raise
 
     finally:
         if trader is not None:

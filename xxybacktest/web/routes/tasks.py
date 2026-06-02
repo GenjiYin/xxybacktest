@@ -118,6 +118,81 @@ def tasks_api_history(task_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@tasks_bp.route("/tasks/api/source/<task_id>")
+def tasks_api_source(task_id):
+    """返回任务的源码"""
+    dp = _data_path()
+
+    # ── 1. 内置任务 ──
+    if task_id == BUILTIN_TASK_ID:
+        try:
+            import inspect
+            from xxybacktest.simulation import runner
+            code = inspect.getsource(runner.run_all)
+            return jsonify({
+                "task_id": task_id,
+                "type": "builtin",
+                "name": "模拟交易",
+                "source_type": "function",
+                "code": code,
+                "file": "xxybacktest/simulation/runner.py",
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ── 2. 实盘任务 ──
+    if task_id.startswith("live_"):
+        account_id = task_id[5:]  # 去掉 live_ 前缀
+        try:
+            from xxybacktest.simulation.submitter import get_account
+            acc = get_account(account_id, data_path=dp)
+            if not acc:
+                return jsonify({"error": "账户不存在"}), 404
+            return jsonify({
+                "task_id": task_id,
+                "type": "live",
+                "name": acc.get("name", account_id),
+                "account_id": account_id,
+                "source_type": "strategy",
+                "initialize_code": acc.get("initialize_code") or "",
+                "handle_data_code": acc.get("handle_data_code") or "",
+                "trigger_cron": acc.get("trigger_cron") or "",
+                "execution_mode": acc.get("execution_mode") or "daily",
+                "rebalance_interval": acc.get("rebalance_interval") or 1,
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ── 3. 用户自定义脚本任务 ──
+    try:
+        from xxybacktest.simulation.task_store import _load_raw
+        tasks = _load_raw(dp)
+        task = next((t for t in tasks if t["task_id"] == task_id), None)
+        if task:
+            script_path = task.get("script", "")
+            code = ""
+            if script_path and os.path.exists(script_path):
+                try:
+                    with open(script_path, "r", encoding="utf-8") as f:
+                        code = f.read()
+                except Exception as e:
+                    code = f"[读取文件失败: {e}]"
+            return jsonify({
+                "task_id": task_id,
+                "type": "script",
+                "name": task.get("name", ""),
+                "source_type": "file",
+                "code": code,
+                "file": script_path,
+                "cron": task.get("cron", ""),
+                "created_at": task.get("created_at", ""),
+            })
+    except Exception:
+        pass
+
+    return jsonify({"error": "未知任务类型，无法获取源码"}), 404
+
+
 @tasks_bp.route("/tasks/api/reregister-all", methods=["POST"])
 def tasks_api_reregister_all():
     """重新注册所有内置任务（改完代码后调用，无需重启服务）。"""

@@ -440,15 +440,29 @@ def get_task_history(task_id: str, data_path: str) -> list:
         except Exception:
             content = "[读取日志失败]"
 
-        # 从日志内容中解析执行状态
+        # 从日志内容中解析执行状态（从末尾往前找，最后的状态标记为准）
         status = "unknown"
-        if "结果: 成功" in content:
-            status = "success"
-        elif "结果: 失败" in content:
-            status = "failed"
-        elif "异常:" in content:
+        for line in reversed(content.splitlines()):
+            line_s = line.strip()
+            if "结果: 成功" in line_s:
+                status = "success"
+                break
+            elif "结果: 失败" in line_s:
+                status = "failed"
+                break
+            elif "异常:" in line_s:
+                status = "error"
+                break
+
+        # 兜底：如果日志中有 Traceback / Error 关键字，但前面没明确标记失败，
+        # 仍判定为 error（防止任务内部吞异常导致最后写了"结果: 成功"）
+        if status in ("success", "unknown") and (
+            "Traceback (most recent call last):" in content
+            or "Error:" in content
+            or "[ERROR]" in content
+        ):
             status = "error"
-        elif "===== 任务开始" in content:
+        elif status == "unknown" and "===== 任务开始" in content:
             status = "running"
 
         records.append({

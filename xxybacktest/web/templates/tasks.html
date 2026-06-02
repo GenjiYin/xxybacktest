@@ -279,10 +279,16 @@
                 ? formatTime(task.next_run_time)
                 : '<span style="color:#999">-</span>';
 
+            const isLive = task.task_id.startsWith('live_');
+            const accountId = isLive ? task.task_id.replace(/^live_/, '') : '';
+
             let actions = `
                 <button class="btn-sm btn-trigger" onclick="triggerTask('${task.task_id}', this)">触发</button>
                 <a href="/tasks/log/${task.task_id}" class="btn-sm btn-log">日志</a>
             `;
+            if (isLive) {
+                actions += `<a href="/account/${accountId}" class="btn-sm btn-log">账户</a>`;
+            }
             if (!task.is_builtin) {
                 actions += `<button class="btn-sm btn-delete" onclick="deleteTask('${task.task_id}')">删除</button>`;
             }

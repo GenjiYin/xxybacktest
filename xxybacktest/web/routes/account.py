@@ -109,7 +109,12 @@ def account_detail(account_id):
         'created_at': created_at,
         'initial_cash': acc.get('initial_cash', 100000),
         'asset_type': acc.get('asset_type', 'stock'),
-        'benchmark': acc.get('benchmark', '000001.SH')
+        'benchmark': acc.get('benchmark', '000001.SH'),
+        'initialize_code': acc.get('initialize_code') or '',
+        'handle_data_code': acc.get('handle_data_code') or '',
+        'trigger_cron': acc.get('trigger_cron') or '',
+        'execution_mode': acc.get('execution_mode') or 'daily',
+        'rebalance_interval': acc.get('rebalance_interval') or 1,
     }
 
     nav_df = get_account_nav(account_id, data_path=DEFAULT_DATA_PATH)

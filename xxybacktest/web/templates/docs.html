@@ -357,7 +357,7 @@ context = run_backtest(
             <tr><td><code>context.previous_date</code></td><td>上一个交易日日期字符串 'YYYY-MM-DD'</td></tr>
             <tr><td><code>context.portfolio.cash</code></td><td>可用现金</td></tr>
             <tr><td><code>context.portfolio.total_value</code></td><td>总资产（现金 + 持仓市值）</td></tr>
-            <tr><td><code>context.portfolio.positions</code></td><td>持仓字典 {code: Position}</td></tr>
+            <tr><td><code>context.portfolio.positions</code></td><td>持仓字典 {code: Position}。Position 属性：amount（总数量）、enable_amount（可卖数量）、cost_basis（持仓均价）、last_sale_price（最新价）、total_value（持仓市值）</td></tr>
             <tr><td><code>context.trade.benchmark</code></td><td>基准指数代码</td></tr>
             <tr><td><code>context.trade.asset_type</code></td><td>资产类型 'stock' / 'fund'</td></tr>
             <tr><td><code>context.g</code></td><td>用户全局变量字典（可存放策略状态）</td></tr>
@@ -596,8 +596,55 @@ if context.g["signal"] == "buy":
             <tr><td><code>context.order(security, amount)</code></td><td>按数量下单，自动转发到 QMT</td></tr>
             <tr><td><code>context.order_target_percent(security, percent)</code></td><td>按总资产百分比调仓（推荐）</td></tr>
             <tr><td><code>context.order_target_value(security, value)</code></td><td>调仓至目标市值</td></tr>
-            <tr><td><code>context.get_portfolio()</code></td><td>实时从 QMT 拉取最新资金和持仓</td></tr>
+            <tr><td><code>context.get_portfolio()</code></td><td>实时从 QMT 拉取最新资金概况，同时同步到 context.portfolio。返回 {'cash', 'frozen_cash', 'market_value', 'total_asset'}</td></tr>
+            <tr><td><code>context.get_account_positions()</code></td><td>实时从 QMT 拉取全部持仓，同时同步到 context.portfolio.positions。返回 {code: {'volume', 'can_sell_volume', 'cost_price', 'last_price', 'market_value'}}</td></tr>
         </table>
+
+        <div class="highlight-box">
+            <strong>提示：</strong><code>get_portfolio()</code> 和 <code>get_account_positions()</code> 在每次 <code>handle_data</code> 结束后会自动调用一次刷新 context。策略内部如需在盘中获取最新资金和持仓（如下单前校验），可手动调用。
+        </div>
+
+        <h3>手动触发实盘调仓</h3>
+        <p>除了定时自动触发，也可随时手动执行一次实盘调仓（适合测试或补跑）：</p>
+        <pre><code>from xxybacktest.live.runner import run_live
+
+# 立即对指定实盘账户执行一次调仓
+result = run_live("live_20260522_111635_7b6e30", data_path="./data")
+# result: {"account_id": ..., "status": "success"|"error"|"skipped", ...}</code></pre>
+        <div class="warn-box">
+            <strong>注意：</strong>手动调用 <code>run_live()</code> 时如果 QMT 未登录，会直接抛出异常。建议先在 Web 界面确认账户状态为"运行中"且 QMT 已登录。
+        </div>
+
+        <h3>实盘账户管理</h3>
+        <p>实盘账户的暂停、恢复、删除与模拟账户共用同一套 API，但行为上有差异：</p>
+        <table>
+            <tr><th>操作</th><th>模拟账户</th><th>实盘账户</th></tr>
+            <tr>
+                <td><code>pause(account_id)</code></td>
+                <td>暂停每日回测重跑</td>
+                <td>暂停 APScheduler 定时触发，不再向 QMT 发送委托</td>
+            </tr>
+            <tr>
+                <td><code>resume(account_id)</code></td>
+                <td>恢复回测重跑</td>
+                <td>恢复定时触发，下次 cron 时间点自动调仓</td>
+            </tr>
+            <tr>
+                <td><code>delete(account_id)</code></td>
+                <td>删除账户数据</td>
+                <td>同步清理：APScheduler job、live_schedule.json、data/live/accounts/&lt;id&gt;/、任务日志</td>
+            </tr>
+        </table>
+        <pre><code>from xxybacktest.simulation import pause, resume, delete
+
+# 暂停实盘（立即停止自动调仓，已有持仓不受影响）
+pause("live_20260522_111635_7b6e30", data_path="./data")
+
+# 恢复实盘
+resume("live_20260522_111635_7b6e30", data_path="./data")
+
+# 删除实盘（会同步清理 QMT 调度任务，谨慎操作）
+delete("live_20260522_111635_7b6e30", data_path="./data")</code></pre>
 
         <h3>修改实盘策略（热更新）</h3>
         <p><code>update_account()</code> 支持修改策略代码、cron 表达式、QMT 配置等，修改后下次定时触发自动生效，无需重启 <code>xxy-sim</code>。</p>
