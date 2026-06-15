@@ -196,11 +196,31 @@ def submit(
             else:
                 print(f"[模拟交易] 立即运行回测...")
                 from .runner import run_single
-                result = run_single(account_id, data_path=data_path)
+
+                def _rollback():
+                    """回滚本次新增的账户记录，不留垃圾账户。
+                    run_single 在 run_backtest 成功后才写结果文件，失败时无结果数据，
+                    故仅需从账户表删除本次新增的这一行。"""
+                    db_rb = get_db(data_path)
+                    df_rb = _get_accounts_df(db_rb)
+                    df_rb = df_rb[df_rb["account_id"] != account_id]
+                    _save_accounts_df(db_rb, df_rb)
+                    print(f"[模拟交易] 已回滚失败账户: {account_id}")
+
+                try:
+                    result = run_single(account_id, data_path=data_path)
+                except Exception as e:
+                    # run_single 未兜住的异常（如结果存储阶段报错）
+                    print(f"[模拟交易] 回测异常: {e}")
+                    _rollback()
+                    return None
+
                 if result['status'] == 'success':
                     print(f"[模拟交易] 回测完成，最终净值: {result['final_nav']:.4f}")
                 else:
                     print(f"[模拟交易] 回测失败: {result.get('reason', '未知错误')}")
+                    _rollback()
+                    return None
 
         # ── 实盘账户：热注册到 APScheduler（无需重启 xxy-sim）──
         if account_type == "live":
