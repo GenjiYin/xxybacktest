@@ -91,6 +91,7 @@ class Context(Protocol):
     id: str
     universe: list
     previous_date: Optional[str]
+    previous_dt: Optional[datetime]
     current_dt: Optional[datetime]
     params: Any
 

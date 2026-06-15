@@ -406,7 +406,13 @@ def run_backtest(
     # ------------------------------------------------------------------
     # 7. 主循环：逐事件执行
     # ------------------------------------------------------------------
-    previous_date = None
+    # 首日的“上一交易日”：从 trading_days 表取 start_date 之前最近交易日，
+    # 使首日（含）起 previous_date / previous_dt 即为真实值，而非 None。
+    # 数据库边界（无更早交易日）时为 None。
+    prev_init = Data.get_previous_trade_day(start_date)
+    context.previous_date = prev_init
+    context.previous_dt = pd.to_datetime(prev_init) if prev_init is not None else None
+    previous_date = prev_init
 
     while event_list:
         event = event_list.pop(0)
@@ -415,10 +421,11 @@ def run_backtest(
         context.current_dt = event.dt
         current_date_str = event.dt.strftime("%Y-%m-%d")
 
-        # previous_date: 上一个交易日的日期（字符串）
+        # previous_date / previous_dt: 上一个交易日（字符串 + datetime）
         # 当日期切换时更新
         if previous_date is not None and current_date_str != previous_date:
             context.previous_date = previous_date
+            context.previous_dt = pd.to_datetime(previous_date)
         previous_date = current_date_str
 
         # 执行事件回调

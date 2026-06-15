@@ -129,6 +129,7 @@ def create_context():
         "id": "",
         "universe": [],
         "previous_date": None,
+        "previous_dt": None,
         "current_dt": None,
         "params": None,
 

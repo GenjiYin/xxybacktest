@@ -171,6 +171,13 @@ def run_live(account_id: str, data_path: str = "./data") -> dict:
         calendar = Data.get_trade_calendar(start_date, today)
         ctx.data.calendar = calendar
 
+        # 上一交易日：今天已过 is_trading_day 校验，故“今天之前最近交易日”即上一交易日。
+        # 数据库边界（无更早交易日）时为 None。
+        prev_day = Data.get_previous_trade_day(today)
+        if prev_day is not None:
+            ctx.previous_date = prev_day
+            ctx.previous_dt = datetime.strptime(prev_day, "%Y-%m-%d")
+
         # --------------------------------------------------------------
         # 8. 绑定交易函数（API 签名与回测完全一致）
         # --------------------------------------------------------------

@@ -413,6 +413,25 @@ class Data:
         """).df()
         return df["date"].dt.strftime("%Y-%m-%d").tolist()
 
+    @staticmethod
+    def get_previous_trade_day(date_str):
+        """返回 date_str 之前最近的一个交易日（不含 date_str 当天）。
+
+        参数:
+            date_str: 基准日期，格式 'YYYY-MM-DD'
+
+        返回:
+            str 'YYYY-MM-DD' — 上一个交易日；
+            None — date_str 已是数据库最早交易日或更早（边界），无更早交易日。
+        """
+        df = Data._db.query(f"""
+            SELECT MAX(date) AS d FROM trading_days
+            WHERE market_code = 'CN' AND date < '{date_str}'
+        """).df()
+        if df.empty or pd.isna(df["d"].iloc[0]):
+            return None
+        return df["d"].iloc[0].strftime("%Y-%m-%d")
+
     # ------------------------------------------------------------------
     # B2. 日线行情
     # ------------------------------------------------------------------
@@ -883,7 +902,9 @@ class Data:
     def history(context, instruments, fields=None, bar_count=1):
         """获取历史K线数据。
 
-        从当前交易日（含）向前回溯 bar_count 根K线。
+        防未来数据：从“上一个交易日”（不含当日）向前回溯 bar_count 根K线。
+        当日 close/high/low/volume 在盘前/盘中尚不可知，纳入即构成未来函数泄漏，
+        故 history 一律截止到上一交易日。
 
         参数:
             instruments: List[str] — 股票代码列表
@@ -920,8 +941,14 @@ class Data:
             if idx == -1:
                 return {}
 
-        start_idx = max(0, idx - bar_count + 1)
-        dates = calendar[start_idx:idx + 1]
+        # 防未来数据：回溯终点为“上一交易日”（idx-1），不含当日。
+        # 当日为日历首日时（idx==0）无历史可回溯，返回空。
+        end_idx = idx - 1
+        if end_idx < 0:
+            return {}
+
+        start_idx = max(0, end_idx - bar_count + 1)
+        dates = calendar[start_idx:end_idx + 1]
 
         if not dates:
             return {}

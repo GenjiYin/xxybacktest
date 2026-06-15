@@ -278,7 +278,7 @@ def account_detail(account_id):
         planned_trades = [
             order for order in all_orders
             if order['trade_date'] == today
-        ][:10]
+        ]
 
     return render_template(
         'account.html',
