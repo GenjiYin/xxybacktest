@@ -399,13 +399,28 @@ context = run_backtest(
         </table>
 
         <h3>数据接口</h3>
-        <pre><code># 获取历史行情
-df = context.history(instruments, fields=None, bar_count=1)
+        <pre><code># 获取最新价格（回测/实盘统一接口，返回 float 或 None）
+price = context.get_price(security)
+#   回测：按当前时间返回模拟撮合价（盘前=上一日close，盘中=当日open，盘后=当日close）
+#   实盘：返回 QMT 实时 tick 价
+#   停牌 / 无行情时返回 None，使用前需判空
+price = context.get_price("000001.SZ")
+if price:
+    context.order_target_percent("000001.SZ", 0.10)
 
-# 参数说明
+# 获取历史行情（防未来数据：只回溯到上一交易日，不含当日）
+his = context.history(instruments, fields=None, bar_count=1)
 #   instruments: 股票代码列表，如 ["000001.SZ", "000002.SZ"]
-#   fields:      字段列表，如 ["close", "volume"]，None 返回全部
-#   bar_count:   回溯天数</code></pre>
+#   fields:      字段列表，默认 ["close"]；可选 open/high/low/close/pre_close/volume/amount/vwap
+#   bar_count:   回溯的K线数量
+#   返回:        dict {code: np.recarray}，按属性访问列
+
+his = context.history(["000001.SZ"], ["close", "volume"], 10)
+arr = his.get("000001.SZ")          # 先判空，可能返回空 dict
+if arr is not None:
+    last_close = arr.close[-1]      # 最近一根（上一交易日）收盘价
+    closes = arr.close              # float64 数组
+    dates = arr.date                # 日期字符串数组</code></pre>
 
         <h3>注册每日事件</h3>
         <pre><code>def initialize(context):
@@ -598,6 +613,7 @@ if context.g["signal"] == "buy":
             <tr><td><code>context.order_target_value(security, value)</code></td><td>调仓至目标市值</td></tr>
             <tr><td><code>context.get_portfolio()</code></td><td>实时从 QMT 拉取最新资金概况，同时同步到 context.portfolio。返回 {'cash', 'frozen_cash', 'market_value', 'total_asset'}</td></tr>
             <tr><td><code>context.get_account_positions()</code></td><td>实时从 QMT 拉取全部持仓，同时同步到 context.portfolio.positions。返回 {code: {'volume', 'can_sell_volume', 'cost_price', 'last_price', 'market_value'}}</td></tr>
+            <tr><td><code>context.get_price(security)</code></td><td>获取最新价（实盘=QMT 实时 tick，回测=模拟撮合价）。返回 float，停牌/无行情返回 None。与回测接口一致</td></tr>
         </table>
 
         <div class="highlight-box">

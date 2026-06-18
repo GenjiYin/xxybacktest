@@ -110,6 +110,12 @@ def run_backtest(
         return result
     context.get_account_positions = _get_account_positions
 
+    # 获取最新参考价（与实盘 context.get_price 接口一致）
+    # 回测：按当前时间返回模拟撮合价（盘前=上一交易日close，盘中=当日open，盘后=当日close）
+    def _get_price(security):
+        return Data.get_price(security, context)
+    context.get_price = _get_price
+
     if benchmark is None:
         benchmark = "000001.SH"
 

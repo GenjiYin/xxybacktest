@@ -21,6 +21,7 @@ from .trader import QMTTrader, QMTConnectionError
 from .trading import (
     get_account_positions,
     get_portfolio,
+    get_price,
     inout_cash as _inout_cash,
     order as _order,
     order_buy as _order_buy,
@@ -192,6 +193,7 @@ def run_live(account_id: str, data_path: str = "./data") -> dict:
         # P4.4: 绑定刷新接口到 context
         ctx.get_portfolio = lambda: get_portfolio(ctx)
         ctx.get_account_positions = lambda: get_account_positions(ctx)
+        ctx.get_price = lambda security: get_price(ctx, security)
 
         # --------------------------------------------------------------
         # 9. 绑定 run_daily（实盘：收集回调到列表）

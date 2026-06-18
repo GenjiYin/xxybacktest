@@ -110,6 +110,36 @@ def _refresh_portfolio(context):
     get_account_positions(context)
 
 
+def get_price(context, security: str) -> float | None:
+    """
+    获取股票最新价（实盘：QMT 实时 tick）。
+
+    接口与回测 context.get_price 一致，策略可直接调用 context.get_price(code)，
+    回测/实盘无需感知差异。
+
+    实时 tick 拿不到时（如未订阅行情），退回该股持仓的 last_price；
+    仍无则返回 None（停牌 / 无行情）。
+
+    参数:
+        security: 股票代码，如 '000001.SZ'
+
+    返回:
+        float 或 None
+    """
+    trader = context._trader
+
+    price = trader.get_price(security)
+    if price:
+        return price
+
+    # tick 不可用时退回持仓最新价
+    pos = trader.get_position(security)
+    if pos and pos.get('last_price'):
+        return pos['last_price']
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 交易函数（API 签名与回测 trading.py 完全一致）
 # ---------------------------------------------------------------------------
