@@ -12,6 +12,7 @@ from .events import load_events, register_daily
 from .performance import Performance
 from .trading import (
     force_sell,
+    order as _order,
     order_buy as _order_buy,
     order_sell as _order_sell,
     order_value as _order_value,
@@ -393,6 +394,7 @@ def run_backtest(
     context.history = _history
 
     # 将下单函数绑定到 context，用户无需手动导入、无需传 context
+    context.order = lambda security, amount: _order(security, amount, context)
     context.order_buy = lambda code, amount: _order_buy(code, amount, context)
     context.order_sell = lambda code, amount: _order_sell(code, amount, context)
     context.order_value = lambda security, value: _order_value(security, value, context)
