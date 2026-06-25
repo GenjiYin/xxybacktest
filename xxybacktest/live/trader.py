@@ -259,11 +259,22 @@ class QMTTrader:
         """
         try:
             ticks = xtdata.get_full_tick([code])
-            if not ticks or code not in ticks:
-                return None
-            tick = ticks[code]
-            # lastPrice 为 0 视为无效（停牌）
-            price = float(tick.get('lastPrice', 0))
+            price = float(ticks[code].get('lastPrice', 0)) if (ticks and code in ticks) else 0.0
+
+            if price <= 0:
+                # 冷缓存兜底：非持仓/未订阅标的首次访问时，QMT 本地缓存里没有它的 tick，
+                # 被动等访问触发订阅会出现「头几次返 None、再跑才有价」。这里主动订阅并
+                # 短暂轮询等待 QMT 推送首个 tick，把冷启动消化在函数内部。
+                xtdata.subscribe_quote(code, period='tick')
+                for _ in range(15):              # 最多等约 2 秒
+                    time.sleep(0.13)
+                    ticks = xtdata.get_full_tick([code])
+                    if ticks and code in ticks:
+                        price = float(ticks[code].get('lastPrice', 0))
+                        if price > 0:
+                            break
+
+            # lastPrice 仍为 0 视为无效（停牌 / 真无行情）
             return price if price > 0 else None
         except Exception as e:
             print(f"[QMTTrader] get_price({code}) 异常: {e}")
