@@ -9,7 +9,8 @@ specific_return 三张表, 一个方法出一个结论。
     from xxybacktest.analyse import BarraLens
     ctx = run_backtest(...)
     lens = BarraLens(ctx.performance)      # 传 performance; db 默认复用回测的 Data._db
-    lens.exposure_snapshot()   # 体检: 我在赌什么
+    lens.exposure_snapshot()   # 体检: 我在赌什么(单期快照)
+    lens.exposure_series()     # 时序: 我这一路都赌同一个吗(全程轨迹)
     lens.attribution()         # 归因: 我赚/亏在哪个维度
     lens.alpha_curve()         # 选股能力: 剥离beta后有没有真本事
 
@@ -126,6 +127,58 @@ class BarraLens:
         return {'style': sty, 'industry': ind}
 
     # ========================================================================
+    # 方法1.5: 暴露时序 —— "我这一路都在赌同一个吗"
+    # ========================================================================
+    def exposure_series(self, verbose=True):
+        """
+        逐日组合风格暴露时序 + 全程统计。
+        补 exposure_snapshot 的盲区: 单期快照看不出风格漂移,
+        最后一天押 A, 可能中途从 B 换过来 —— 这里把整段轨迹摊开。
+        判定口径:
+          std 大   → 暴露漂移(择时/换仓), 快照会骗你
+          |均值| 大 → 全程稳定押注, 才是真信仰
+        返回: dict{'series': DataFrame(逐日风格暴露, 列=中文风格, 可直接 .plot()),
+                  'stats':  DataFrame(均值/标准差/最小/最大/|均值|, 按|均值|排序)}
+        """
+        expo = self._load_exposure()
+        pe = self.pos.merge(expo, on=['date', 'instrument'], how='inner')
+        series = pe.groupby('date').apply(
+            lambda g: pd.Series({s: (g['w'] * g[s]).sum() for s in STYLES}),
+            include_groups=False).sort_index()
+        series_cn = series.rename(columns=STYLE_CN)
+
+        stats = pd.DataFrame({
+            '均值':  series.mean(),
+            '标准差': series.std(),
+            '最小':  series.min(),
+            '最大':  series.max(),
+        })
+        stats['|均值|'] = stats['均值'].abs()
+        stats = stats.rename(index=STYLE_CN).sort_values('|均值|', ascending=False)
+
+        if verbose:
+            print('='*60)
+            print(f'【暴露时序】逐日风格暴露 全程统计  ({len(series)}个持仓日)')
+            print(f'  {pd.Timestamp(series.index.min()).date()} → '
+                  f'{pd.Timestamp(series.index.max()).date()}')
+            print('='*60)
+            print(f'  {"风格":6s} {"均值":>7s} {"标准差":>7s} {"最小":>7s} {"最大":>7s}   判定')
+            for name, row in stats.iterrows():
+                std, am = row['标准差'], row['|均值|']
+                if std >= 0.5:
+                    tag = '← 漂移大(择时/换仓)'
+                elif am >= 1.0:
+                    tag = '← 长期重仓(稳)'
+                elif am >= 0.5:
+                    tag = '← 持续偏向(稳)'
+                else:
+                    tag = ''
+                print(f'  {name:6s} {row["均值"]:+7.2f} {std:7.2f} '
+                      f'{row["最小"]:+7.2f} {row["最大"]:+7.2f}   {tag}')
+            print('\n  >>> 标准差高的因子, exposure_snapshot() 的单期快照会误导你。')
+        return {'series': series_cn, 'stats': stats}
+
+    # ========================================================================
     # 方法2: 归因 —— "我赚/亏在哪个维度"
     # ========================================================================
     def attribution(self, verbose=True):
@@ -144,34 +197,63 @@ class BarraLens:
 
         merged = port_expo.merge(fr.set_index('expo_date'), left_index=True, right_index=True,
                                  suffixes=('_e', ''))
-        contrib = {}
+        contrib, avg_expo, fac_cum = {}, {}, {}
         for f in STYLES + INDUSTRIES:
-            contrib[f] = (merged[f'{f}_e'] * merged[f]).sum()
+            contrib[f]   = (merged[f'{f}_e'] * merged[f]).sum()   # 贡献 = Σ暴露×因子收益
+            avg_expo[f]  = merged[f'{f}_e'].mean()                # 你平均押的方向/轻重
+            fac_cum[f]   = merged[f].sum()                        # 因子自己这段涨跌(算术累加)
         contrib['country'] = merged['country'].sum()
+        fac_cum['country'] = merged['country'].sum()
 
-        style_c = pd.Series({f: contrib[f] for f in STYLES}) * 100
-        ind_c = sum(contrib[i] for i in INDUSTRIES) * 100
+        style_c   = pd.Series({f: contrib[f] for f in STYLES}) * 100
+        ind_c     = sum(contrib[i] for i in INDUSTRIES) * 100
         country_c = contrib['country'] * 100
         strat_cum = ((1 + self.ret.dropna()).prod() - 1) * 100
+
+        def _verdict(e, fc):
+            """e=平均暴露, fc=因子累计收益(pt); 拆出正负号背后的操作含义"""
+            if abs(e) < 0.1 or abs(fc) < 0.3:
+                return '影响小'
+            if e > 0 and fc > 0: return '押对 (做多↑的因子)'
+            if e > 0 and fc < 0: return '押反 (做多↓的因子,踩雷)'
+            if e < 0 and fc > 0: return '踏空 (低配↑的因子)'
+            return '躲对 (低配↓的因子)'
 
         if verbose:
             print('='*60)
             print('【归因】收益来源分解 (算术累加口径, 百分点)')
             print('='*60)
-            print(f'  国家因子(市场β) {country_c:+8.2f}')
+            print('  贡献 = 你的暴露方向 × 因子自己的涨跌; 看懂正负号请对照右侧解读')
+            print('-'*60)
+            print(f'  {"因子":6s} {"贡献pt":>7s} {"平均暴露":>7s} {"因子收益":>7s}   解读')
+            # 市场β: 满仓吃/被市场, 暴露≈1
+            mkt = '市场涨你在场,赚了' if country_c >= 0 else '市场跌你满仓,被套'
+            print(f'  {"市场β":6s} {country_c:+7.2f} {"~满仓":>7s} '
+                  f'{fac_cum["country"]*100:+7.2f}   {mkt}')
             srt = style_c.reindex(style_c.abs().sort_values(ascending=False).index)
             for f in srt.index:
-                print(f'  {STYLE_CN[f]:6s}         {srt[f]:+8.2f}')
-            print(f'  行业合计       {ind_c:+8.2f}')
+                print(f'  {STYLE_CN[f]:6s} {srt[f]:+7.2f} {avg_expo[f]:+7.2f} '
+                      f'{fac_cum[f]*100:+7.2f}   {_verdict(avg_expo[f], fac_cum[f]*100)}')
+            print(f'  {"行业合计":6s} {ind_c:+7.2f}')
             print('-'*60)
             print(f'  策略累计收益(复利,仅参照) {strat_cum:+.2f}')
-            print('\n  ⚠ 口径提醒: 上面是算术累加, 不能直接和复利总收益相减求alpha。')
-            print('  ⚠ size贡献是"剥离其他因子后"的纯效应, 若你满仓小盘却见size≈0,')
-            print('    是因为小盘的钱被流动性/波动/行业分走了 —— 用 alpha_curve() 看真本事。')
+            print('\n  口径速查:')
+            print('    · 贡献>0 = 这个因子帮你赚钱; <0 = 拖你后腿')
+            print('    · 平均暴露>0 = 你在做多该风格; <0 = 低配/做空')
+            print('    · 因子收益>0 = 该因子这段自己在涨; <0 = 自己在跌')
+            print('    · 押对/躲对 → 赚 (贡献+);  押反/踏空 → 亏 (贡献-)')
+            print('\n  ⚠ 算术累加口径, 不能直接和复利总收益相减求alpha。')
+            print('  ⚠ 满仓小盘却见 size≈0, 是钱被流动性/波动/行业分走了 —— 用 alpha_curve() 看真本事。')
 
-        out = pd.Series({'国家(市场β)': country_c, **{STYLE_CN[f]: style_c[f] for f in STYLES},
-                         '行业合计': ind_c})
-        return out.to_frame('累计贡献pt')
+        out = pd.DataFrame({
+            '累计贡献pt': {'国家(市场β)': country_c,
+                        **{STYLE_CN[f]: style_c[f] for f in STYLES}, '行业合计': ind_c},
+            '平均暴露':  {'国家(市场β)': np.nan,
+                        **{STYLE_CN[f]: avg_expo[f] for f in STYLES}, '行业合计': np.nan},
+            '因子收益pt': {'国家(市场β)': fac_cum['country']*100,
+                        **{STYLE_CN[f]: fac_cum[f]*100 for f in STYLES}, '行业合计': np.nan},
+        })
+        return out
 
     # ========================================================================
     # 方法3: 选股能力 —— "剥离所有beta后, 我到底有没有真本事"
