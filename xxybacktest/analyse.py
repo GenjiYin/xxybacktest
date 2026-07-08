@@ -33,6 +33,13 @@ STYLE_CN = {'z_size':'市值','z_earningsyield':'盈利收益率','z_lev':'杠�
     'z_quality':'质量','z_value':'价值','z_div':'红利','z_mom':'动量','z_vol':'波动','z_liq':'流动性'}
 
 
+def _renorm(w):
+    """inner join 丢掉缺数据的股票后, 对存活股票权重重新归一化(和=1)。
+    否则 Σw<1 会把组合暴露/特质收益系统性往 0 缩, 低估真实口径。"""
+    s = w.sum()
+    return w / s if s > 0 else w
+
+
 class BarraLens:
     def __init__(self, performance, db=None, data_path='./data'):
         """
@@ -143,7 +150,7 @@ class BarraLens:
         expo = self._load_exposure()
         pe = self.pos.merge(expo, on=['date', 'instrument'], how='inner')
         series = pe.groupby('date').apply(
-            lambda g: pd.Series({s: (g['w'] * g[s]).sum() for s in STYLES}),
+            lambda g: pd.Series({s: (_renorm(g['w']) * g[s]).sum() for s in STYLES}),
             include_groups=False).sort_index()
         series_cn = series.rename(columns=STYLE_CN)
 
@@ -192,7 +199,7 @@ class BarraLens:
 
         pe = self.pos.merge(expo, on=['date', 'instrument'], how='inner')
         port_expo = pe.groupby('date').apply(
-            lambda g: pd.Series({f: (g['w'] * g[f]).sum() for f in STYLES + INDUSTRIES}),
+            lambda g: pd.Series({f: (_renorm(g['w']) * g[f]).sum() for f in STYLES + INDUSTRIES}),
             include_groups=False)
 
         merged = port_expo.merge(fr.set_index('expo_date'), left_index=True, right_index=True,
@@ -267,11 +274,11 @@ class BarraLens:
         """
         insts_dates = self.pos[['date', 'instrument', 'w']]
         q = "SELECT expo_date AS date, instrument, u FROM specific_return"
-        sr = self.db.query(q, filters={'date': (str(self.start.date()), str(self.end.date()))}).df()
+        sr = self.db.query(q, filters={'expo_date': (str(self.start.date()), str(self.end.date()))}).df()
         sr['date'] = pd.to_datetime(sr['date'])
 
         m = insts_dates.merge(sr, on=['date', 'instrument'], how='inner')
-        daily_spec = m.groupby('date').apply(lambda g: (g['w'] * g['u']).sum(),
+        daily_spec = m.groupby('date').apply(lambda g: (_renorm(g['w']) * g['u']).sum(),
                                              include_groups=False)
         cum = daily_spec.cumsum() * 100
 
