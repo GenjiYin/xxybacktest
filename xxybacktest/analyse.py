@@ -10,7 +10,8 @@ specific_return 三张表, 一个方法出一个结论。
     ctx = run_backtest(...)
     lens = BarraLens(ctx.performance)      # 传 performance; db 默认复用回测的 Data._db
     lens.exposure_snapshot()   # 体检: 我在赌什么(单期快照)
-    lens.exposure_series()     # 时序: 我这一路都赌同一个吗(全程轨迹)
+    lens.exposure_series()     # 时序: 我这一路都赌同一个吗(风格全程轨迹)
+    lens.industry_series()     # 时序: 我这一路都押同一批行业吗(行业全程轨迹)
     lens.attribution()         # 归因: 我赚/亏在哪个维度
     lens.alpha_curve()         # 选股能力: 剥离beta后有没有真本事
 
@@ -184,6 +185,61 @@ class BarraLens:
                       f'{row["最小"]:+7.2f} {row["最大"]:+7.2f}   {tag}')
             print('\n  >>> 标准差高的因子, exposure_snapshot() 的单期快照会误导你。')
         return {'series': series_cn, 'stats': stats}
+
+    # ========================================================================
+    # 方法1.6: 行业暴露时序 —— "我这一路都押同一批行业吗"
+    # ========================================================================
+    def industry_series(self, top=8, verbose=True):
+        """
+        逐日组合行业暴露(权重占比)时序 + 全程统计。
+        补 exposure_snapshot 的盲区: 最新一天行业分布看不出中途有没有换赛道。
+        与 exposure_series 的差异:
+          风格看"押得多重(标准差)+ 漂移", 行业看"仓位占比 + 轮动/集中度"。
+        判定口径:
+          均值高      → 全程重仓该行业(真赛道信仰)
+          均值中/std高 → 阶段性重仓, 在做行业轮动(快照会漏掉别的赛道)
+        参数:
+          top: verbose 打印时展示的行业数(按全程平均权重排序), series 始终返回全部31个行业。
+        返回: dict{'series': DataFrame(逐日行业权重, 列=行业名, 可直接 .plot.area()),
+                  'stats':  DataFrame(均值/标准差/最小/最大, 按均值降序)}
+        """
+        expo = self._load_exposure()
+        pe = self.pos.merge(expo, on=['date', 'instrument'], how='inner')
+        series = pe.groupby('date').apply(
+            lambda g: pd.Series({i: (_renorm(g['w']) * g[i]).sum() for i in INDUSTRIES}),
+            include_groups=False).sort_index()
+
+        stats = pd.DataFrame({
+            '均值':  series.mean(),
+            '标准差': series.std(),
+            '最小':  series.min(),
+            '最大':  series.max(),
+        }).sort_values('均值', ascending=False)
+
+        if verbose:
+            hhi = (series ** 2).sum(axis=1)   # 逐日行业赫芬达尔指数(集中度)
+            print('='*60)
+            print(f'【行业时序】逐日行业暴露 全程统计  ({len(series)}个持仓日)')
+            print(f'  {pd.Timestamp(series.index.min()).date()} → '
+                  f'{pd.Timestamp(series.index.max()).date()}   (前{top}大行业, 按全程均值)')
+            print('='*60)
+            print(f'  {"行业":6s} {"均值%":>7s} {"标准差":>7s} {"最小%":>7s} {"最大%":>7s}   判定')
+            for name, row in stats.head(top).iterrows():
+                mean, std, mx = row['均值'], row['标准差'], row['最大']
+                if mean >= 0.20:
+                    tag = '← 长期重仓(赛道信仰)'
+                elif std >= 0.10:
+                    tag = '← 波动大(行业轮动)'
+                elif mean >= 0.10:
+                    tag = '← 持续持有'
+                else:
+                    tag = ''
+                print(f'  {name:6s} {mean*100:7.1f} {std*100:7.1f} '
+                      f'{row["最小"]*100:7.1f} {mx*100:7.1f}   {tag}')
+            print(f'\n  集中度(HHI): 均值{hhi.mean():.3f}  最高{hhi.max():.3f}  最低{hhi.min():.3f}')
+            print('    · HHI≈1/N 越接近均衡; 越大越集中(单行业押注)')
+            print('  >>> 均值高=赛道信仰; std高=在换赛道, exposure_snapshot() 只看最后一天会漏掉。')
+        return {'series': series, 'stats': stats}
 
     # ========================================================================
     # 方法2: 归因 —— "我赚/亏在哪个维度"
