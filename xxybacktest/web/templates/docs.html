@@ -243,8 +243,9 @@
             <li><strong>策略回测</strong>：基于历史数据验证策略表现</li>
             <li><strong>模拟账户</strong>：将策略注册为每日自动运行的模拟交易账户</li>
             <li><strong>实盘交易</strong>：对接 QMT，策略信号自动转化为真实委托下单</li>
+            <li><strong>因子分析</strong>：一条 SQL 提交因子，系统每日算 IC / 分组收益 / 多空曲线，看板监控</li>
             <li><strong>定时任务</strong>：灵活调度数据更新、策略重跑等任意脚本</li>
-            <li><strong>Web 可视化</strong>：策略净值、持仓、信号一目了然</li>
+            <li><strong>Web 可视化</strong>：策略净值、持仓、信号、因子绩效一目了然</li>
         </ul>
 
         <h3>架构简图</h3>
@@ -252,11 +253,14 @@
 └── Flask (port 5000)
     ├── /              ← 账户列表（模拟+实盘）
     ├── /account/&lt;id&gt;  ← 账户详情（净值曲线、持仓、信号）
+    ├── /factors       ← 因子绩效看板（列表）
+    ├── /factors/&lt;id&gt;  ← 因子详情（年度IC、分组收益、净值曲线）
     ├── /tasks         ← 定时任务管理（含实盘调度）
     └── /docs          ← API 文档（本页）
 
 APScheduler（后台）
     ├── builtin_run_simulation  ← 内置：每日模拟交易重跑
+    ├── builtin_run_factors     ← 内置：每日因子分析全量重跑
     ├── live_&lt;account_id&gt;      ← 实盘：定时触发策略下单（QMT）
     ├── task_数据更新            ← 用户注册：数据更新脚本
     └── task_xxx                 ← 用户注册：任意脚本
@@ -283,6 +287,7 @@ xxy-sim --data ./data --time 22:00</code></pre>
             <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
             <tr><td><code>--data</code></td><td>数据目录路径</td><td><code>./data</code></td></tr>
             <tr><td><code>--time</code></td><td>每日模拟交易触发时间（HH:MM）</td><td><code>22:00</code></td></tr>
+            <tr><td><code>--factor-time</code></td><td>每日因子分析重跑时间（HH:MM）。因子分析依赖当天行情入库，应晚于 <code>--time</code></td><td>比 <code>--time</code> 晚 30 分钟</td></tr>
         </table>
 
         <div class="highlight-box">
@@ -691,6 +696,124 @@ update_account(
             <code>trigger_cron</code> 修改后，如果 APScheduler 正在运行，会自动热更新调度时间，无需重启服务。
         </div>
 
+        <h2 id="factor">因子分析</h2>
+        <p>因子分析模块让你用<strong>一条 SQL</strong> 提交一个因子，系统自动计算 IC / ICIR / 分组收益 / 多空曲线等绩效指标，并在 <code>/factors</code> 看板展示、每日自动更新。适合回放大量因子、持续监控因子绩效衰减。</p>
+
+        <div class="highlight-box">
+            <strong>两种用法，共用同一套计算引擎，口径永远一致：</strong><br>
+            ① <code>analyze_factor(...)</code> —— notebook 里即时分析，返回结果对象可画图，不落盘、一次性，用于探索调参。<br>
+            ② <code>submit_factor(...)</code> —— 提交入库，由每日定时任务全量重跑落盘，前端看板监控。
+        </div>
+
+        <h3>核心约定</h3>
+        <ul>
+            <li><strong>因子值来源</strong>：你的 SQL，必须返回 <code>date</code> / <code>instrument</code> / <code>value</code> 三列。</li>
+            <li><strong>收益口径</strong>：系统固定用<strong>次日开盘价 + 后复权</strong>算未来 N 日收益（<code>open(T+1)</code> 买入 → <code>open(T+1+N)</code> 卖出），零未来函数，最贴实盘。</li>
+            <li><strong>可交易过滤</strong>：系统自动剔除停牌 / ST / 涨跌停（次日无法成交的股票）。</li>
+            <li><strong>股票池 & 中性化</strong>：由你在 SQL 里自行控制（要成分股就 join 成分股表，要中性化就自己回归取残差 / 直接查已中性化的因子值）。</li>
+            <li><strong>方向判定</strong>：默认按 IC 符号自动判定（IC 为负=负向因子）。多空组合跟随方向：正向做多高分位、负向做多低分位，故负向因子多空年化也为正。</li>
+        </ul>
+
+        <h3>① 即时分析（notebook 探索）</h3>
+        <pre><code>from xxybacktest.factor import analyze_factor
+
+# 一条 SQL 定义因子，立即拿到绩效
+res = analyze_factor(
+    sql="SELECT date, instrument, close/pre_close-1 AS value "
+        "FROM daily_bar WHERE date >= '2023-01-01'",
+    data_path=r"D:\数据目录\data",
+    name="昨日涨幅",
+    periods=[1, 5, 10, 20],   # 未来 N 日收益
+    n_groups=10,              # 分组数
+    base_period=5,            # 分组/多空/汇总用哪个周期
+)
+
+res.summary()        # 打印 IC均值/ICIR/多空年化/胜率/换手/年度拆解
+res.plot()           # 四张图：累计IC / 多空净值 / 分组年化 / 分组净值
+res.plot_ic()        # 单独画累计 IC 曲线
+res.plot_groups()    # 单独画分组年化 + 分组净值
+res.metrics          # 原始指标 dict
+res.ic_series        # 逐日 IC 时序 DataFrame
+res.to_dict()        # 转 JSON（落盘/前端用的结构）</code></pre>
+
+        <p>因子逻辑可以直接写在 SQL 里，包括窗口函数。例如 5 日换手率均值：</p>
+        <pre><code>sql = """
+SELECT date, instrument,
+       avg(turn) OVER (PARTITION BY instrument ORDER BY date
+                       ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS value
+FROM daily_bar WHERE date >= '2023-01-01'
+"""
+res = analyze_factor(sql, data_path=r"D:\数据目录\data", name="5日换手率", base_period=5)</code></pre>
+
+        <h3>② 提交入库（纳入每日监控）</h3>
+        <pre><code>from xxybacktest.factor import submit_factor
+
+factor_id = submit_factor(
+    name="EP因子",                    # 展示名（必填）
+    sql="SELECT date, instrument, ep AS value FROM ...",   # 因子SQL（必填）
+    category="价值",                  # 分类，列表页筛选用（必填）
+    data_path="./data",
+    periods=[1, 5, 10, 20],
+    n_groups=10,
+    base_period=5,
+    ic_method="rank",                # rank(Spearman) / normal(Pearson)
+    direction=None,                  # 不传按IC符号自动判定；也可指定 'long'/'short'
+    description="市盈率倒数",         # 可选说明
+    run_now=False,                   # True=提交后立即算一次；False=等定时任务
+)
+print(f"因子已登记: {factor_id}")</code></pre>
+
+        <h3>submit_factor 参数表</h3>
+        <table>
+            <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+            <tr><td><code>name</code></td><td>因子名称（展示）</td><td>必填</td></tr>
+            <tr><td><code>sql</code></td><td>因子 SQL，须返回 date/instrument/value</td><td>必填</td></tr>
+            <tr><td><code>category</code></td><td>分类（动量/价值/质量…）</td><td>必填</td></tr>
+            <tr><td><code>periods</code></td><td>未来收益周期列表</td><td><code>[1,5,10,20]</code></td></tr>
+            <tr><td><code>n_groups</code></td><td>分组数</td><td><code>10</code></td></tr>
+            <tr><td><code>base_period</code></td><td>分组/多空/汇总用的主周期</td><td><code>periods[0]</code></td></tr>
+            <tr><td><code>ic_method</code></td><td><code>rank</code> 或 <code>normal</code></td><td><code>rank</code></td></tr>
+            <tr><td><code>direction</code></td><td>因子方向，不传按 IC 符号自动判定</td><td><code>None</code></td></tr>
+            <tr><td><code>run_now</code></td><td>提交后立即算一次</td><td><code>False</code></td></tr>
+        </table>
+
+        <h3>因子管理</h3>
+        <pre><code>from xxybacktest.factor import (list_factors, get_factor,
+                                update_factor, delete_factor, run_single, run_all)
+
+list_factors(data_path="./data")              # 列出所有因子
+list_factors(data_path="./data", status="ok") # 只列已成功计算的
+get_factor(factor_id, data_path="./data")     # 查看单个因子定义
+update_factor(factor_id, data_path="./data", name="新名", category="质量")  # 改定义
+delete_factor(factor_id, data_path="./data")  # 删除因子及结果
+
+run_single(factor_id, data_path="./data")     # 手动重跑单个因子
+run_all(data_path="./data")                   # 手动全量重跑（并行）</code></pre>
+
+        <h3>每日自动更新</h3>
+        <p>启动 <code>xxy-sim</code> 后，因子分析会作为内置任务 <code>builtin_run_factors</code> 每日自动全量重跑。触发时间默认<strong>比模拟交易（<code>--time</code>）晚 30 分钟</strong>（因子分析依赖当天行情已入库），也可用 <code>--factor-time</code> 单独指定：</p>
+        <pre><code># 模拟交易 22:00 跑，因子分析 22:45 跑
+xxy-sim --data ./data --time 22:00 --factor-time 22:45
+
+# 不指定 --factor-time：因子分析默认 22:30（22:00 + 30 分钟）
+xxy-sim --data ./data --time 22:00</code></pre>
+        <div class="highlight-box">
+            提交过的因子会在每天定时触发时自动重算、刷新看板，无需手动干预。打开 <code>http://localhost:5000/factors</code> 即可查看所有因子的最新绩效。
+        </div>
+
+        <h3>绩效指标说明</h3>
+        <table>
+            <tr><th>指标</th><th>含义</th></tr>
+            <tr><td>IC 均值</td><td>因子值与未来收益的截面相关性均值，衡量因子整体有效性</td></tr>
+            <tr><td>ICIR</td><td>IC 均值 / IC 标准差 × 年化系数，衡量因子的稳定性（性价比）</td></tr>
+            <tr><td>IC 胜率</td><td>IC 为正（或负向因子为负）的截面日占比</td></tr>
+            <tr><td>多空年化</td><td>多头组减空头组的年化收益（方向跟随因子 direction）</td></tr>
+            <tr><td>多空夏普</td><td>多空组合的年化夏普比率</td></tr>
+            <tr><td>最大回撤</td><td>多空组合净值的最大回撤</td></tr>
+            <tr><td>换手</td><td>多头组相邻调仓期的成分股换手率</td></tr>
+            <tr><td>覆盖度</td><td>因子有值的可交易股票占全体可交易股票的比例</td></tr>
+        </table>
+
         <h2 id="scheduler">定时任务</h2>
         <p>系统使用 APScheduler 管理定时任务，支持<strong>热注册、热删除</strong>，无需重启服务。</p>
 
@@ -846,6 +969,41 @@ tid = schedule_task(
             </tr>
         </table>
 
+        <h3>因子分析接口</h3>
+        <table>
+            <tr><th>接口</th><th>方法</th><th>说明</th></tr>
+            <tr>
+                <td><code>/api/factors</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取所有因子绩效汇总（列表页数据）</td>
+            </tr>
+            <tr>
+                <td><code>/api/factors/&lt;id&gt;</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>获取单因子详情（年度IC / 分组收益 / 各曲线序列）</td>
+            </tr>
+            <tr>
+                <td><code>/api/factors</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>提交新因子。请求体：<code>{"name":"...", "sql":"...", "category":"...", "run_now":true}</code></td>
+            </tr>
+            <tr>
+                <td><code>/api/factors/&lt;id&gt;/run</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>立即重跑单个因子</td>
+            </tr>
+            <tr>
+                <td><code>/api/factors/run_all</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>全量重跑所有因子</td>
+            </tr>
+            <tr>
+                <td><code>/api/factors/&lt;id&gt;</code></td>
+                <td><span class="endpoint delete">DELETE</span></td>
+                <td>删除因子及其结果</td>
+            </tr>
+        </table>
+
         <h2 id="faq">常见问题</h2>
 
         <h4>Q：Flask 的 debug 模式可以开吗？</h4>
@@ -868,6 +1026,18 @@ tid = schedule_task(
 
         <h4>Q：删除实盘账户后任务管理还有记录？</h4>
         <p>A：正常删除会同步清理 APScheduler job、live_schedule.json、结果目录和日志。如果仍有残留，运行 <code>python scripts/cleanup_live_residual.py "D:\Desktop\最新回测框架\data"</code> 清理。</p>
+
+        <h4>Q：因子分析可以指定每日运行时间吗？</h4>
+        <p>A：可以。用 <code>--factor-time HH:MM</code> 单独指定；不指定则默认比模拟交易（<code>--time</code>）晚 30 分钟。因子分析依赖当天行情已入库，所以应晚于模拟交易触发。</p>
+
+        <h4>Q：因子的 IC 是正的，但多空年化是负的，是 bug 吗？</h4>
+        <p>A：不是。这说明因子<strong>非单调</strong>——IC 衡量整体线性相关，多空只看最高/最低两个极端分位。当因子呈倒 U 形（如中间分位收益最高），两端对冲反而不赚钱，多空为负如实反映了"IC 显著但极端分位无 alpha"。这正是多空指标的价值。</p>
+
+        <h4>Q：为什么因子值计算要自己写 SQL，不能传函数？</h4>
+        <p>A：SQL 直接下推到 DuckDB 计算，比 Python 逐日循环快得多（实测 2 倍以上），且你最懂自己的数据表。股票池筛选、中性化等也一并在 SQL 里灵活处理，系统只负责收益口径、过滤和 IC/分组计算。</p>
+
+        <h4>Q：一台笔记本能跑多少因子？</h4>
+        <p>A：绩效指标每因子仅几十 KB，几百上千个因子的存储毫无压力。计算上 SQL-first 引擎单因子几秒，<code>run_all</code> 并行重跑几百因子也是分钟级。瓶颈在因子数量而非单因子速度，靠并行解决。</p>
 
         <h4>Q：数据存储格式变更后旧数据怎么办？</h4>
         <p>A：最简单的方式是<strong>让所有账户重跑一次</strong>，新文件会自动生成。模拟账户路径为 <code>data/simulation_results/accounts/&lt;account_id&gt;/</code>，实盘账户路径为 <code>data/live/accounts/&lt;account_id&gt;/</code>。</p>

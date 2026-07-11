@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ factor_name }} · 因子详情</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1218; --panel:#171c26; --panel2:#1e2531; --line:#2a3240;
+    --text:#e6ebf2; --sub:#8a94a6; --accent:#4c8dff; --green:#26c281; --red:#ff5d5d;
+    --chip:#232b3a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
+  .wrap{max-width:1320px;margin:0 auto;padding:24px}
+  .chip{background:var(--chip);color:var(--sub);border-radius:6px;padding:3px 8px;font-size:11px;display:inline-block}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  .num{font-variant-numeric:tabular-nums}
+  .badge{font-size:10px;padding:2px 7px;border-radius:5px;font-weight:600}
+  .badge.long{background:rgba(38,194,129,.15);color:var(--green)}
+  .badge.short{background:rgba(255,93,93,.15);color:var(--red)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .back{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block}
+  .back:hover{border-color:var(--accent)}
+  .detail-head{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+  .detail-title{font-size:22px;font-weight:700}
+  .sub{color:var(--sub);font-size:12px;margin-top:4px}
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:18px 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .kpi .k{color:var(--sub);font-size:11px;margin-bottom:6px}
+  .kpi .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  .sec-title{font-size:13px;font-weight:600;color:var(--sub);padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse}
+  .mini td,.mini th{padding:9px 14px;font-size:12px;text-align:right}
+  .mini th:first-child,.mini td:first-child{text-align:left}
+  .mini thead th{background:var(--panel2);color:var(--sub);font-weight:500}
+  .mini tbody td{border-top:1px solid var(--line)}
+  .chart-box{padding:16px;height:320px;position:relative}
+  @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,1fr)}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="margin-bottom:16px"><a class="back" href="/factors">← 返回列表</a></div>
+  <div id="content"><div class="sub">加载中…</div></div>
+</div>
+<script>
+const FACTOR_ID = "{{ factor_id }}";
+const fmtPct = v => (v==null||isNaN(v))?'—':(v*100).toFixed(2)+'%';
+const fmtNum = v => (v==null||isNaN(v))?'—':(+v).toFixed(2);
+const colorCls = v => (v==null||isNaN(v))?'':(v>0?'pos':v<0?'neg':'');
+
+async function load(){
+  const r = await fetch('/api/factors/'+FACTOR_ID);
+  if(!r.ok){ document.getElementById('content').innerHTML='<div class="sub">因子不存在或尚未计算</div>'; return; }
+  const d = await r.json();
+  render(d);
+}
+
+function render(d){
+  const meta = d.meta || {};
+  const m = d.metrics || {};
+  const name = meta.name || FACTOR_ID;
+  const dir = m.direction || meta.direction;
+  const badge = dir==='long'?'<span class="badge long">正向</span>':
+                dir==='short'?'<span class="badge short">负向</span>':'';
+  const bp = m.base_period || meta.base_period || '';
+  const kpi=(k,v,cls='')=>`<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+
+  // 年度表
+  const yRows = (d.yearly||[]).map(y=>`<tr>
+    <td>${y.year}</td>
+    <td class="num ${colorCls(y.ic)}">${fmtNum(y.ic)}</td>
+    <td class="num ${colorCls(y.icir)}">${fmtNum(y.icir)}</td>
+    <td class="num">${fmtPct(y.ic_win_rate)}</td>
+    <td class="num ${colorCls(y.ls_return)}">${fmtPct(y.ls_return)}</td>
+    <td class="num ${colorCls(y.long_return)}">${fmtPct(y.long_return)}</td>
+  </tr>`).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="detail-head">
+      <div class="detail-title">${name}</div>${badge}
+      <span class="chip">${meta.category||''}</span><span class="chip">${FACTOR_ID}</span>
+    </div>
+    <div class="sub">主周期 ${bp} 日 · 覆盖度 ${fmtPct(m.coverage)} · 样本 ${m.n_days||0} 个截面 · 更新于 ${(meta.updated_at||'').slice(0,16)}</div>
+
+    <div class="kpis">
+      ${kpi('IC均值', fmtPct(m.ic_mean), colorCls(m.ic_mean))}
+      ${kpi('ICIR', fmtNum(m.icir), colorCls(m.icir))}
+      ${kpi('多空年化', fmtPct(m.ls_return), colorCls(m.ls_return))}
+      ${kpi('多空夏普', fmtNum(m.ls_sharpe), colorCls(m.ls_sharpe))}
+      ${kpi('IC胜率', fmtPct(m.ic_win_rate))}
+      ${kpi('最大回撤', fmtPct(m.ls_maxdd), 'neg')}
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="sec-title">年度 IC / 收益</div>
+        <table class="mini"><thead><tr>
+          <th>年份</th><th>IC</th><th>ICIR</th><th>IC胜率</th><th>多空收益</th><th>多头收益</th>
+        </tr></thead><tbody>${yRows||'<tr><td colspan=6 style="text-align:center;color:var(--sub)">无数据</td></tr>'}</tbody></table>
+      </div>
+      <div class="card"><div class="sec-title">累计 IC 曲线</div>
+        <div class="chart-box"><canvas id="icChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="sec-title">分组年化收益（低分位 → 高分位）</div>
+        <div class="chart-box"><canvas id="groupBar"></canvas></div>
+      </div>
+      <div class="card"><div class="sec-title">分组净值曲线</div>
+        <div class="chart-box"><canvas id="groupCurve"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px"><div class="sec-title">多空组合净值曲线（最高分位 − 最低分位）</div>
+      <div class="chart-box"><canvas id="lsChart"></canvas></div>
+    </div>`;
+
+  drawCharts(d, bp);
+}
+const GRID={color:'rgba(255,255,255,0.05)'};
+const TICK={color:'#8a94a6',font:{size:10}};
+const LEGEND={labels:{color:'#8a94a6',boxWidth:12,font:{size:10}}};
+
+function grad(i,n){ const t=n>1?i/(n-1):0.5;
+  return `rgba(${Math.round(255*(1-t)+76*t)},${Math.round(93*(1-t)+141*t)},${Math.round(93*(1-t)+255*t)},.9)`; }
+
+function drawCharts(d, bp){
+  const icKey = 'ic_'+bp;
+  // 累计 IC
+  const ic = (d.ic_series||[]).filter(r=>r[icKey]!=null);
+  let cum=0; const icCum=ic.map(r=>({x:r.date, y:(cum+=r[icKey])}));
+  new Chart(document.getElementById('icChart'),{
+    type:'line',
+    data:{labels:ic.map(r=>r.date),
+      datasets:[{data:icCum.map(p=>p.y),borderColor:'#4c8dff',backgroundColor:'rgba(76,141,255,.12)',fill:true,tension:.2,pointRadius:0,borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:GRID,ticks:{...TICK,maxTicksLimit:8}},y:{grid:GRID,ticks:TICK}}}
+  });
+
+  // 分组年化柱状
+  const gs = (d.group_summary||[]).slice().sort((a,b)=>a.group-b.group);
+  new Chart(document.getElementById('groupBar'),{
+    type:'bar',
+    data:{labels:gs.map(g=>'Q'+(g.group+1)),
+      datasets:[{data:gs.map(g=>+(g.ann_return*100).toFixed(2)),
+        backgroundColor:gs.map((g,i)=>grad(i,gs.length)),borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c=>c.parsed.y+'%'}}},
+      scales:{x:{grid:GRID,ticks:TICK},y:{grid:GRID,ticks:{...TICK,callback:v=>v+'%'}}}}
+  });
+
+  // 分组净值曲线: groups[date,group,ret] -> 每组按日期累乘
+  const groups = d.groups||[];
+  const byGroup = {};
+  groups.forEach(r=>{ (byGroup[r.group]=byGroup[r.group]||[]).push(r); });
+  const gids = Object.keys(byGroup).map(Number).sort((a,b)=>a-b);
+  const allDates = [...new Set(groups.map(r=>r.date))].sort();
+  const curveSets = gids.map(g=>{
+    const rows = byGroup[g].slice().sort((a,b)=>a.date<b.date?-1:1);
+    let nav=1; const navByDate={};
+    rows.forEach(r=>{ nav*=(1+r.ret); navByDate[r.date]=nav; });
+    let last=1;
+    return {label:'Q'+(g+1),
+      data:allDates.map(dt=>{ if(navByDate[dt]!=null)last=navByDate[dt]; return last; }),
+      borderColor:grad(gids.indexOf(g),gids.length),borderWidth:1.5,pointRadius:0,tension:.1};
+  });
+  new Chart(document.getElementById('groupCurve'),{
+    type:'line', data:{labels:allDates,datasets:curveSets},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:LEGEND},
+      scales:{x:{grid:GRID,ticks:{...TICK,maxTicksLimit:6}},y:{grid:GRID,ticks:TICK}}}
+  });
+
+  // 多空净值
+  const ls = (d.ls_series||[]).slice().sort((a,b)=>a.date<b.date?-1:1);
+  let lnav=1; const lsNav=ls.map(r=>(lnav*=(1+r.ret)));
+  new Chart(document.getElementById('lsChart'),{
+    type:'line',
+    data:{labels:ls.map(r=>r.date),
+      datasets:[{data:lsNav,borderColor:'#26c281',backgroundColor:'rgba(38,194,129,.1)',fill:true,borderWidth:2,pointRadius:0,tension:.15}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:GRID,ticks:{...TICK,maxTicksLimit:8}},y:{grid:GRID,ticks:TICK}}}
+  });
+}
+
+load();
+</script>
+</body>
+</html>

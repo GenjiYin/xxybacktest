@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>因子绩效看板</title>
+<style>
+  :root{
+    --bg:#0f1218; --panel:#171c26; --panel2:#1e2531; --line:#2a3240;
+    --text:#e6ebf2; --sub:#8a94a6; --accent:#4c8dff; --green:#26c281; --red:#ff5d5d;
+    --chip:#232b3a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
+  .wrap{max-width:1320px;margin:0 auto;padding:24px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  h1{font-size:20px;font-weight:600;letter-spacing:.5px}
+  h1 .dot{color:var(--accent)}
+  .sub{color:var(--sub);font-size:12px;margin-top:4px}
+  .navlink{color:var(--sub);font-size:13px;text-decoration:none;margin-left:16px}
+  .navlink:hover{color:var(--accent)}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+  input,select{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  input::placeholder{color:var(--sub)}
+  .chip{background:var(--chip);color:var(--sub);border-radius:6px;padding:3px 8px;font-size:11px;display:inline-block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  thead th{background:var(--panel2);color:var(--sub);font-weight:500;font-size:12px;text-align:right;padding:12px 14px;white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0}
+  thead th:first-child,tbody td:first-child{text-align:left}
+  thead th.sortable:hover{color:var(--text)}
+  thead th .arrow{font-size:9px;opacity:.6;margin-left:3px}
+  tbody td{text-align:right;padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}
+  tbody tr{cursor:pointer;transition:background .12s}
+  tbody tr:hover{background:var(--panel2)}
+  .fname{font-weight:600;color:var(--text)}
+  .fcat{color:var(--sub);font-size:11px;margin-top:2px}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  .badge{font-size:10px;padding:2px 7px;border-radius:5px;font-weight:600}
+  .badge.long{background:rgba(38,194,129,.15);color:var(--green)}
+  .badge.short{background:rgba(255,93,93,.15);color:var(--red)}
+  .num{font-variant-numeric:tabular-nums}
+  .empty{padding:60px;text-align:center;color:var(--sub)}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
+  .btn:hover{opacity:.9}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>因子绩效看板 <span class="dot">●</span></h1>
+      <div class="sub">共 <span id="factorCount">0</span> 个因子 · 数据截至 <span id="asOf">—</span> · 每日自动更新</div>
+    </div>
+    <div>
+      <a class="navlink" href="/">账户列表</a>
+      <a class="navlink" href="/tasks">任务管理</a>
+    </div>
+  </header>
+  <div class="toolbar">
+    <input id="search" placeholder="搜索因子名称…" style="width:240px">
+    <select id="catFilter"><option value="">全部分类</option></select>
+    <select id="dirFilter"><option value="">全部方向</option><option value="long">正向</option><option value="short">负向</option></select>
+    <span style="color:var(--sub);font-size:12px" id="filterInfo"></span>
+  </div>
+  <div class="card">
+    <table id="factorTable">
+      <thead><tr id="theadRow"></tr></thead>
+      <tbody id="factorBody"></tbody>
+    </table>
+    <div id="emptyMsg" class="empty" style="display:none">暂无因子数据。用 <code>submit_factor(...)</code> 提交因子，或 <code>run_all()</code> 生成绩效。</div>
+  </div>
+</div>
+<script>
+// 列定义: key 对齐后端 metrics 字段
+const COLS = [
+  {k:'name', label:'因子'},
+  {k:'category', label:'分类', chip:true},
+  {k:'ic_mean', label:'IC均值', pct:true, color:true},
+  {k:'icir', label:'ICIR', num:true, color:true},
+  {k:'ls_return', label:'多空年化', pct:true, color:true},
+  {k:'ls_sharpe', label:'多空夏普', num:true, color:true},
+  {k:'ic_win_rate', label:'IC胜率', pct:true},
+  {k:'turnover', label:'换手', pct:true},
+  {k:'ls_maxdd', label:'最大回撤', pct:true, color:true},
+  {k:'coverage', label:'覆盖度', pct:true},
+];
+let FACTORS = [], sortKey='icir', sortDir=-1;
+
+const fmtPct = v => (v==null||isNaN(v))?'—':(v*100).toFixed(2)+'%';
+const fmtNum = v => (v==null||isNaN(v))?'—':(+v).toFixed(2);
+const colorCls = v => (v==null||isNaN(v))?'':(v>0?'pos':v<0?'neg':'');
+
+async function loadFactors(){
+  const r = await fetch('/api/factors');
+  const data = await r.json();
+  FACTORS = data.factors || [];
+  document.getElementById('factorCount').textContent = FACTORS.length;
+  // 分类下拉
+  const cats = [...new Set(FACTORS.map(f=>f.category).filter(Boolean))];
+  const sel = document.getElementById('catFilter');
+  cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);});
+  // 数据截至 = 最新 updated_at
+  const ups = FACTORS.map(f=>f.updated_at).filter(Boolean).sort();
+  if(ups.length) document.getElementById('asOf').textContent = ups[ups.length-1].slice(0,10);
+  render();
+}
+
+function renderHead(){
+  document.getElementById('theadRow').innerHTML = COLS.map(c=>{
+    const arrow = c.k===sortKey ? (sortDir<0?'▼':'▲') : '';
+    return `<th class="sortable" data-k="${c.k}">${c.label}<span class="arrow">${arrow}</span></th>`;
+  }).join('');
+  document.querySelectorAll('#theadRow th').forEach(th=>{
+    th.onclick=()=>{const k=th.dataset.k; if(k===sortKey)sortDir*=-1; else{sortKey=k;sortDir=-1;} render();};
+  });
+}
+
+function render(){
+  renderHead();
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const cat=document.getElementById('catFilter').value;
+  const dir=document.getElementById('dirFilter').value;
+  let rows=FACTORS.filter(f=>
+    (!q || (f.name||'').toLowerCase().includes(q) || (f.factor_id||'').toLowerCase().includes(q)) &&
+    (!cat || f.category===cat) && (!dir || f.direction===dir));
+
+  rows.sort((a,b)=>{
+    let x=a[sortKey], y=b[sortKey];
+    if(typeof x==='string') return (x||'').localeCompare(y||'')*sortDir;
+    if(x==null)x=-Infinity; if(y==null)y=-Infinity;
+    return (x-y)*sortDir;
+  });
+
+  const body=document.getElementById('factorBody');
+  const empty=document.getElementById('emptyMsg');
+  if(!rows.length){ body.innerHTML=''; empty.style.display='block'; }
+  else empty.style.display='none';
+
+  body.innerHTML = rows.map(f=>{
+    const tds = COLS.map(c=>{
+      if(c.k==='name'){
+        const badge = f.direction==='long'?'<span class="badge long">正向</span>':
+                      f.direction==='short'?'<span class="badge short">负向</span>':'';
+        return `<td><div class="fname">${f.name||f.factor_id} ${badge}</div><div class="fcat">${f.factor_id}</div></td>`;
+      }
+      if(c.chip) return `<td><span class="chip">${f[c.k]||'—'}</span></td>`;
+      const v=f[c.k];
+      const txt = c.pct?fmtPct(v):(c.num?fmtNum(v):(v??'—'));
+      const cls = c.color?colorCls(v):'';
+      return `<td class="num ${cls}">${txt}</td>`;
+    }).join('');
+    return `<tr onclick="location.href='/factors/${f.factor_id}'">${tds}</tr>`;
+  }).join('');
+
+  const info=document.getElementById('filterInfo');
+  info.textContent = rows.length!==FACTORS.length?`筛选出 ${rows.length} 个`:'';
+}
+
+['search','catFilter','dirFilter'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+loadFactors();
+</script>
+</body>
+</html>

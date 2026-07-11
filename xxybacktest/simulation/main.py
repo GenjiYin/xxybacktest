@@ -20,7 +20,21 @@ def _parse_args():
         default="22:00",
         help="每日触发时间，格式 HH:MM（默认: 22:00）",
     )
+    parser.add_argument(
+        "--factor-time",
+        default=None,
+        help="因子分析每日重跑时间 HH:MM（默认比 --time 晚 30 分钟，因子分析依赖当天行情入库）",
+    )
     return parser.parse_args()
+
+
+def _plus_minutes(time_str, minutes):
+    """把 HH:MM 加上若干分钟，返回 HH:MM（同日内，简单处理，超过 23:59 则封顶）。"""
+    parts = time_str.split(":")
+    h, m = int(parts[0]), int(parts[1])
+    total = h * 60 + m + minutes
+    total = min(total, 23 * 60 + 59)
+    return f"{total // 60:02d}:{total % 60:02d}"
 
 
 def _validate_time(time_str):
@@ -90,6 +104,40 @@ def _register_live_jobs(data_path):
         print(f"  [{task_id}] {name}  cron: {cron}")
 
 
+def _register_factor_job(data_path, time_str):
+    """注册内置任务：每日因子分析全量重跑。用包装函数每次 reload 最新代码。
+
+    因子分析依赖当天行情已入库, 触发时间应晚于模拟交易。定时线程内用串行
+    run_single(逐个因子)而非 ProcessPoolExecutor, 避免调度线程内 spawn 子进程。
+    """
+    from xxybacktest.simulation.scheduler import add_func_job
+
+    parts = time_str.split(":")
+    h, m = int(parts[0]), int(parts[1])
+    cron = f"{m} {h} * * *"
+
+    def _run_factors_wrapper():
+        import importlib
+        import xxybacktest.factor.runner as _f_runner
+        import xxybacktest.factor.submitter as _f_sub
+        importlib.reload(_f_runner)
+        ids = [meta["factor_id"] for meta in _f_sub.list_factors(data_path)]
+        if not ids:
+            print("[因子分析] 无已登记因子, 跳过")
+            return
+        print(f"[因子分析] 开始全量重跑 {len(ids)} 个因子")
+        ok = 0
+        for fid in ids:
+            r = _f_runner.run_single(fid, data_path=data_path)
+            tag = "✓" if r["status"] == "success" else "✗"
+            print(f"  [{tag}] {fid}  {r.get('reason', '')}")
+            ok += (r["status"] == "success")
+        print(f"[因子分析] 完成: 成功 {ok}, 失败 {len(ids) - ok}")
+
+    add_func_job("builtin_run_factors", "因子分析", _run_factors_wrapper, cron, data_path)
+    print(f"[内置任务] 因子分析 已注册，触发时间: {time_str} (cron: {cron})")
+
+
 def main():
     args = _parse_args()
 
@@ -115,6 +163,10 @@ def main():
 
     # 注册实盘任务
     _register_live_jobs(data_path)
+
+    # 注册因子分析任务(默认比模拟交易晚 30 分钟, 确保当天行情已入库)
+    factor_time = args.factor_time or _plus_minutes(args.time, 30)
+    _register_factor_job(data_path, factor_time)
 
     # 加载用户任务
     user_tasks = load_tasks(data_path)
