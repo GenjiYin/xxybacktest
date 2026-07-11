@@ -95,6 +95,18 @@ def _read_parquet(path, cols=None):
     return pd.read_parquet(path)
 
 
+def _clean_nan(obj):
+    """递归把 float NaN/Inf 替换为 None, 使输出为合法 JSON(浏览器 JSON.parse 不接受 NaN)。"""
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _clean_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_nan(v) for v in obj]
+    return obj
+
+
 def load_meta(factor_id, data_path="./data"):
     """读因子定义。不存在返回 None。"""
     path = os.path.join(_factors_base(data_path), factor_id, "meta.json")
@@ -140,12 +152,15 @@ def load_detail(factor_id, data_path="./data"):
 
     def _recs(fn):
         df = _read_parquet(os.path.join(base, fn))
-        return df.where(pd.notna(df), None).to_dict("records")
+        # 注意: df.where(notna, None) 在 float 列会把 None 又转回 NaN,
+        # 必须在 to_dict 之后于原生 dict 层清洗, 否则输出非法 JSON(NaN)导致
+        # 浏览器 JSON.parse 失败。
+        return _clean_nan(df.to_dict("records"))
 
     return {
         "factor_id": factor_id,
         "meta": load_meta(factor_id, data_path),
-        "metrics": load_metrics(factor_id, data_path),
+        "metrics": _clean_nan(load_metrics(factor_id, data_path)),
         "ic_series": _recs("ic_series.parquet"),
         "yearly": _recs("yearly.parquet"),
         "groups": _recs("groups.parquet"),
@@ -178,7 +193,7 @@ def list_factor_metrics(data_path="./data"):
             if k in meta and meta[k] is not None:
                 row[k] = meta[k]
         rows.append(row)
-    return rows
+    return _clean_nan(rows)
 
 
 def delete_factor_result(factor_id, data_path="./data"):

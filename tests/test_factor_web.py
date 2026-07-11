@@ -51,6 +51,13 @@ def test_full_web_flow(client):
         assert len(detail["group_summary"]) > 0
         assert len(detail["yearly"]) > 0
 
+        # 回归: 响应必须是合法 JSON, 不含 NaN(否则浏览器 JSON.parse 失败, 详情页卡"加载中")
+        raw = resp.get_data(as_text=True)
+        assert "NaN" not in raw, "响应含 NaN, 浏览器无法解析"
+        import json
+        json.loads(raw, parse_constant=lambda x: (_ for _ in ()).throw(
+            ValueError(f"非法JSON常量: {x}")))
+
         # 4. 列表页 + 详情页能渲染(占位模板也应 200)
         assert client.get("/factors").status_code == 200
         assert client.get(f"/factors/{fid}").status_code == 200
