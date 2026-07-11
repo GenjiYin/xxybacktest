@@ -41,8 +41,16 @@
   .mini thead th{background:var(--panel2);color:var(--sub);font-weight:500}
   .mini tbody td{border-top:1px solid var(--line)}
   .chart-box{padding:16px;height:320px;position:relative}
-  .sqlbox{margin:14px 16px 16px;padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow-x:auto}
+  .sqlbox{margin:0 16px 16px;padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow-x:auto}
   .sqlbox code{font-family:"Consolas","Monaco","Courier New",monospace;font-size:12.5px;color:#9ecbff;white-space:pre;line-height:1.6}
+  .sql-details summary{cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:8px}
+  .sql-details summary::-webkit-details-marker{display:none}
+  .sql-details summary::before{content:"▶";font-size:10px;color:var(--sub);transition:transform .15s}
+  .sql-details[open] summary::before{transform:rotate(90deg)}
+  .sql-hint{color:var(--sub);font-size:11px;font-weight:400;margin-left:4px}
+  .sql-details[open] .sql-hint::after{content:"（点击收起）"}
+  .sql-details[open] .sql-hint{font-size:0}
+  .sql-details[open] .sql-hint::after{font-size:11px}
   @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,1fr)}.grid2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -123,8 +131,10 @@ function render(d){
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <div class="sec-title">因子定义${meta.description?' · '+esc(meta.description):''}</div>
-      <pre class="sqlbox"><code>${esc(meta.sql)}</code></pre>
+      <details class="sql-details">
+        <summary class="sec-title">因子定义${meta.description?' · '+esc(meta.description):''}<span class="sql-hint">点击展开 SQL</span></summary>
+        <pre class="sqlbox"><code>${esc(meta.sql)}</code></pre>
+      </details>
     </div>
 
     <div class="grid2">
