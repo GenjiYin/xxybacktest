@@ -23,6 +23,9 @@
   .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .back{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block}
   .back:hover{border-color:var(--accent)}
+  .del-btn{background:transparent;border:1px solid var(--red);color:var(--red);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
+  .del-btn:hover{background:var(--red);color:#fff}
+  .del-btn:disabled{opacity:.5;cursor:not-allowed}
   .detail-head{display:flex;align-items:center;gap:14px;margin-bottom:6px}
   .detail-title{font-size:22px;font-weight:700}
   .sub{color:var(--sub);font-size:12px;margin-top:4px}
@@ -38,12 +41,17 @@
   .mini thead th{background:var(--panel2);color:var(--sub);font-weight:500}
   .mini tbody td{border-top:1px solid var(--line)}
   .chart-box{padding:16px;height:320px;position:relative}
+  .sqlbox{margin:14px 16px 16px;padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow-x:auto}
+  .sqlbox code{font-family:"Consolas","Monaco","Courier New",monospace;font-size:12.5px;color:#9ecbff;white-space:pre;line-height:1.6}
   @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,1fr)}.grid2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div style="margin-bottom:16px"><a class="back" href="/factors">← 返回列表</a></div>
+  <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+    <a class="back" href="/factors">← 返回列表</a>
+    <button class="del-btn" id="delBtn" onclick="deleteFactor()">删除因子</button>
+  </div>
   <div id="content"><div class="sub">加载中…</div></div>
 </div>
 <script>
@@ -51,12 +59,31 @@ const FACTOR_ID = "{{ factor_id }}";
 const fmtPct = v => (v==null||isNaN(v))?'—':(v*100).toFixed(2)+'%';
 const fmtNum = v => (v==null||isNaN(v))?'—':(+v).toFixed(2);
 const colorCls = v => (v==null||isNaN(v))?'':(v>0?'pos':v<0?'neg':'');
+const esc = s => String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
 async function load(){
   const r = await fetch('/api/factors/'+FACTOR_ID);
   if(!r.ok){ document.getElementById('content').innerHTML='<div class="sub">因子不存在或尚未计算</div>'; return; }
   const d = await r.json();
   render(d);
+}
+
+async function deleteFactor(){
+  if(!confirm('确定删除该因子吗？将永久删除它的定义和全部绩效结果，不可恢复。')) return;
+  const btn = document.getElementById('delBtn');
+  btn.disabled = true; btn.textContent = '删除中…';
+  try{
+    const r = await fetch('/api/factors/'+FACTOR_ID, {method:'DELETE'});
+    if(r.ok){ location.href = '/factors'; }
+    else{
+      const e = await r.json().catch(()=>({}));
+      alert('删除失败：' + (e.error || r.status));
+      btn.disabled = false; btn.textContent = '删除因子';
+    }
+  }catch(err){
+    alert('删除失败：' + err);
+    btn.disabled = false; btn.textContent = '删除因子';
+  }
 }
 
 function render(d){
@@ -93,6 +120,11 @@ function render(d){
       ${kpi('多空夏普', fmtNum(m.ls_sharpe), colorCls(m.ls_sharpe))}
       ${kpi('IC胜率', fmtPct(m.ic_win_rate))}
       ${kpi('最大回撤', fmtPct(m.ls_maxdd), 'neg')}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="sec-title">因子定义${meta.description?' · '+esc(meta.description):''}</div>
+      <pre class="sqlbox"><code>${esc(meta.sql)}</code></pre>
     </div>
 
     <div class="grid2">
