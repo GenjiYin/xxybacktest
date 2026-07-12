@@ -158,9 +158,14 @@ function render(){
       const cls = c.color?colorCls(v):'';
       return `<td class="num ${cls}">${txt}</td>`;
     }).join('');
+    const running = f.status==='running';
+    const errored = f.status==='error';
+    const btnCls = running?'run-btn':(errored?'run-btn err':'run-btn');
+    const btnTxt = running?'更新中…':(errored?'重试':'更新');
+    const dis = running?'disabled':'';
     const act = `<td style="text-align:center">`
-      + `<button class="run-btn" data-fid="${f.factor_id}" `
-      + `onclick="event.stopPropagation();runFactor('${f.factor_id}',this)">更新</button></td>`;
+      + `<button class="${btnCls}" ${dis} data-fid="${f.factor_id}" `
+      + `onclick="event.stopPropagation();runFactor('${f.factor_id}',this)">${btnTxt}</button></td>`;
     return `<tr onclick="location.href='/factors/${f.factor_id}'">${tds}${act}</tr>`;
   }).join('');
 
@@ -168,52 +173,62 @@ function render(){
   info.textContent = rows.length!==FACTORS.length?`筛选出 ${rows.length} 个`:'';
 }
 
-// 手动更新单个因子: 调后端 run_single, 完成后回填该行绩效
+// 正在轮询的因子 -> 定时器, 避免重复轮询
+const POLLING = {};
+
+// 手动更新单个因子: 后端异步执行(立即返回202), 前端轮询 status 直到 ok/error。
+// running 状态持久化在 meta, 故切页/刷新回来能自动恢复"更新中"并继续轮询。
 async function runFactor(fid, btn){
-  btn.disabled = true;
-  btn.className = 'run-btn';
-  btn.textContent = '更新中…';
   try{
     const r = await fetch('/api/factors/'+fid+'/run', {method:'POST'});
-    const j = await r.json().catch(()=>({}));
-    if(r.ok && j.status==='success'){
-      btn.className = 'run-btn ok';
-      btn.textContent = '已更新';
-      // 重新拉取该因子最新绩效, 局部刷新表格
-      await refreshOne(fid);
-      setTimeout(()=>{ btn.className='run-btn'; btn.textContent='更新'; btn.disabled=false; }, 1500);
+    if(r.status===202 || r.ok){
+      // 本地立即标记 running, 开始轮询
+      markRunning(fid);
+      pollFactor(fid);
     }else{
-      btn.className = 'run-btn err';
-      btn.textContent = '失败';
-      alert('更新失败：' + (j.reason || j.error || r.status));
-      setTimeout(()=>{ btn.className='run-btn'; btn.textContent='更新'; btn.disabled=false; }, 2000);
+      const j = await r.json().catch(()=>({}));
+      alert('触发失败：' + (j.error || r.status));
     }
   }catch(err){
-    btn.className = 'run-btn err';
-    btn.textContent = '失败';
-    alert('更新失败：' + err);
-    setTimeout(()=>{ btn.className='run-btn'; btn.textContent='更新'; btn.disabled=false; }, 2000);
+    alert('触发失败：' + err);
   }
 }
 
-// 拉取单因子最新 metrics, 更新内存并重渲染
-async function refreshOne(fid){
-  try{
-    const r = await fetch('/api/factors');
-    const data = await r.json();
-    const fresh = (data.factors||[]).find(f=>f.factor_id===fid);
-    if(fresh){
-      const idx = FACTORS.findIndex(f=>f.factor_id===fid);
-      if(idx>=0) FACTORS[idx] = fresh; else FACTORS.push(fresh);
-      const ups = FACTORS.map(f=>f.updated_at).filter(Boolean).sort();
-      if(ups.length) document.getElementById('asOf').textContent = ups[ups.length-1].slice(0,10);
-      render();
-    }
-  }catch(e){/* 忽略, 保留旧数据 */}
+// 把内存里该因子标为 running 并重渲染(按钮变"更新中…")
+function markRunning(fid){
+  const f = FACTORS.find(x=>x.factor_id===fid);
+  if(f) f.status = 'running';
+  render();
+}
+
+// 轮询: 每 3s 拉一次列表, 直到该因子 status 不再是 running
+function pollFactor(fid){
+  if(POLLING[fid]) return;               // 已在轮询
+  POLLING[fid] = setInterval(async ()=>{
+    try{
+      const data = await (await fetch('/api/factors')).json();
+      const fresh = (data.factors||[]).find(f=>f.factor_id===fid);
+      if(!fresh) return;
+      if(fresh.status !== 'running'){
+        // 跑完了: 用最新数据替换该行, 停止轮询
+        clearInterval(POLLING[fid]); delete POLLING[fid];
+        const idx = FACTORS.findIndex(f=>f.factor_id===fid);
+        if(idx>=0) FACTORS[idx] = fresh;
+        const ups = FACTORS.map(f=>f.updated_at).filter(Boolean).sort();
+        if(ups.length) document.getElementById('asOf').textContent = ups[ups.length-1].slice(0,10);
+        render();
+      }
+    }catch(e){/* 网络抖动, 下次再试 */}
+  }, 3000);
+}
+
+// 页面加载/重渲染后, 对所有 status==running 的因子自动恢复轮询
+function resumePolling(){
+  FACTORS.filter(f=>f.status==='running').forEach(f=>pollFactor(f.factor_id));
 }
 
 ['search','catFilter','dirFilter'].forEach(id=>document.getElementById(id).addEventListener('input',render));
-loadFactors();
+loadFactors().then(resumePolling);
 </script>
 </body>
 </html>
