@@ -42,7 +42,7 @@ def analyze_factor(sql, data_path="./data", name=None,
                    periods=(1, 5, 10, 20), n_groups=10, ic_method="rank",
                    base_period=None, exclude_suspended=True, exclude_st=True,
                    exclude_limit=True, winsorize=True, standardize=True,
-                   direction=None, db=None):
+                   direction=None, db=None, with_horizon=False):
     """
     即时分析一个因子, 返回 FactorResult(可 .summary() / .plot())。
 
@@ -58,6 +58,9 @@ def analyze_factor(sql, data_path="./data", name=None,
         exclude_*:  可交易过滤开关(停牌/ST/涨跌停), 默认全开
         winsorize/standardize: 截面预处理开关, 默认全开
         db:         可选, 传入已开的 xxydb 连接直接复用(此时不负责关闭)
+        with_horizon: 是否算因子有效时限(IC衰减曲线+半衰期等标量)。默认 False,
+                    即时试因子/调参不算它, 秒回; 需要看时限时手动传 True。
+                    定时任务(run_single)另行开启, 落盘供详情页展示。
 
     返回:
         FactorResult
@@ -73,7 +76,8 @@ def analyze_factor(sql, data_path="./data", name=None,
             db, sql, periods=periods, n_groups=n_groups, ic_method=ic_method,
             base_period=base_period, exclude_suspended=exclude_suspended,
             exclude_st=exclude_st, exclude_limit=exclude_limit,
-            winsorize=winsorize, standardize=standardize, direction=direction)
+            winsorize=winsorize, standardize=standardize, direction=direction,
+            with_horizon=with_horizon)
         return FactorResult(output, name=name)
     finally:
         if own_db:

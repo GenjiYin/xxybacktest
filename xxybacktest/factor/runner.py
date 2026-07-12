@@ -51,6 +51,8 @@ def run_single(factor_id, data_path="./data"):
             standardize=meta.get("standardize", True),
             # 用户指定的 direction 传进引擎, 让多空/多头组一次算对(不再事后覆盖)
             direction=meta.get("direction"),
+            # 定时任务落盘算因子有效时限(IC衰减曲线), 供详情页展示
+            with_horizon=True,
         )
         res = FactorResult(output, name=meta.get("name"))
 

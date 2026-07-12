@@ -43,6 +43,13 @@
   .empty{padding:60px;text-align:center;color:var(--sub)}
   .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
   .btn:hover{opacity:.9}
+  .run-btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:5px 12px;cursor:pointer;font-size:12px;white-space:nowrap}
+  .run-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .run-btn:disabled{opacity:.55;cursor:not-allowed}
+  .run-btn.ok{border-color:var(--green);color:var(--green)}
+  .run-btn.err{border-color:var(--red);color:var(--red)}
+  thead th.noSort{cursor:default}
+  thead th.noSort:hover{color:var(--sub)}
 </style>
 </head>
 <body>
@@ -50,7 +57,7 @@
   <header>
     <div>
       <h1>因子绩效看板 <span class="dot">●</span></h1>
-      <div class="sub">共 <span id="factorCount">0</span> 个因子 · 数据截至 <span id="asOf">—</span> · 每日自动更新</div>
+      <div class="sub">共 <span id="factorCount">0</span> 个因子 · 数据截至 <span id="asOf">—</span> · 点击每行「更新」手动重算</div>
     </div>
     <div>
       <a class="navlink" href="/">账户列表</a>
@@ -68,7 +75,7 @@
       <thead><tr id="theadRow"></tr></thead>
       <tbody id="factorBody"></tbody>
     </table>
-    <div id="emptyMsg" class="empty" style="display:none">暂无因子数据。用 <code>submit_factor(...)</code> 提交因子，或 <code>run_all()</code> 生成绩效。</div>
+    <div id="emptyMsg" class="empty" style="display:none">暂无因子数据。用 <code>submit_factor(...)</code> 提交因子后，点击该行「更新」生成绩效。</div>
   </div>
 </div>
 <script>
@@ -107,11 +114,12 @@ async function loadFactors(){
 }
 
 function renderHead(){
-  document.getElementById('theadRow').innerHTML = COLS.map(c=>{
+  const cols = COLS.map(c=>{
     const arrow = c.k===sortKey ? (sortDir<0?'▼':'▲') : '';
     return `<th class="sortable" data-k="${c.k}">${c.label}<span class="arrow">${arrow}</span></th>`;
   }).join('');
-  document.querySelectorAll('#theadRow th').forEach(th=>{
+  document.getElementById('theadRow').innerHTML = cols + '<th class="noSort">操作</th>';
+  document.querySelectorAll('#theadRow th.sortable').forEach(th=>{
     th.onclick=()=>{const k=th.dataset.k; if(k===sortKey)sortDir*=-1; else{sortKey=k;sortDir=-1;} render();};
   });
 }
@@ -150,11 +158,58 @@ function render(){
       const cls = c.color?colorCls(v):'';
       return `<td class="num ${cls}">${txt}</td>`;
     }).join('');
-    return `<tr onclick="location.href='/factors/${f.factor_id}'">${tds}</tr>`;
+    const act = `<td style="text-align:center">`
+      + `<button class="run-btn" data-fid="${f.factor_id}" `
+      + `onclick="event.stopPropagation();runFactor('${f.factor_id}',this)">更新</button></td>`;
+    return `<tr onclick="location.href='/factors/${f.factor_id}'">${tds}${act}</tr>`;
   }).join('');
 
   const info=document.getElementById('filterInfo');
   info.textContent = rows.length!==FACTORS.length?`筛选出 ${rows.length} 个`:'';
+}
+
+// 手动更新单个因子: 调后端 run_single, 完成后回填该行绩效
+async function runFactor(fid, btn){
+  btn.disabled = true;
+  btn.className = 'run-btn';
+  btn.textContent = '更新中…';
+  try{
+    const r = await fetch('/api/factors/'+fid+'/run', {method:'POST'});
+    const j = await r.json().catch(()=>({}));
+    if(r.ok && j.status==='success'){
+      btn.className = 'run-btn ok';
+      btn.textContent = '已更新';
+      // 重新拉取该因子最新绩效, 局部刷新表格
+      await refreshOne(fid);
+      setTimeout(()=>{ btn.className='run-btn'; btn.textContent='更新'; btn.disabled=false; }, 1500);
+    }else{
+      btn.className = 'run-btn err';
+      btn.textContent = '失败';
+      alert('更新失败：' + (j.reason || j.error || r.status));
+      setTimeout(()=>{ btn.className='run-btn'; btn.textContent='更新'; btn.disabled=false; }, 2000);
+    }
+  }catch(err){
+    btn.className = 'run-btn err';
+    btn.textContent = '失败';
+    alert('更新失败：' + err);
+    setTimeout(()=>{ btn.className='run-btn'; btn.textContent='更新'; btn.disabled=false; }, 2000);
+  }
+}
+
+// 拉取单因子最新 metrics, 更新内存并重渲染
+async function refreshOne(fid){
+  try{
+    const r = await fetch('/api/factors');
+    const data = await r.json();
+    const fresh = (data.factors||[]).find(f=>f.factor_id===fid);
+    if(fresh){
+      const idx = FACTORS.findIndex(f=>f.factor_id===fid);
+      if(idx>=0) FACTORS[idx] = fresh; else FACTORS.push(fresh);
+      const ups = FACTORS.map(f=>f.updated_at).filter(Boolean).sort();
+      if(ups.length) document.getElementById('asOf').textContent = ups[ups.length-1].slice(0,10);
+      render();
+    }
+  }catch(e){/* 忽略, 保留旧数据 */}
 }
 
 ['search','catFilter','dirFilter'].forEach(id=>document.getElementById(id).addEventListener('input',render));

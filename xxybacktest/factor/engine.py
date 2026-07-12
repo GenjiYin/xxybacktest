@@ -615,69 +615,11 @@ def derive_horizon(curve, sig_t=2.0):
     }
 
 
-def scan_holding_periods(db, user_sql, holding_periods, n_groups=10,
-                         ic_method="rank", exclude_suspended=True,
-                         exclude_st=True, exclude_limit=True,
-                         winsorize=True, standardize=True, direction=None):
-    """
-    多空绩效随持有期变化: 对每个持有期各跑一次分组多空, 看多空年化/夏普/换手怎么变。
-    峰值持有期 == 最优调仓周期, 应与 IC 半衰期互相印证。
-    复用 build_groups_sql + groups_from_detail + summarize, 口径与主流程一致。
-    返回 DataFrame[holding, ls_ann, ls_sharpe, ls_maxdd, turnover]。
-    """
-    from . import engine_sql as es
-    rows = []
-    for bp in holding_periods:
-        try:
-            g_sql = es.build_groups_sql(user_sql, bp, n_groups, exclude_suspended,
-                                        exclude_st, exclude_limit, winsorize, standardize)
-            detail = db.query(g_sql).df()
-            gr, gsum, _ = groups_from_detail(detail, bp, n_groups)
-            if gr.empty:
-                continue
-            # 按 direction 重构多空(做多正确一端), 与 summarize 口径一致。
-            # direction 由主流程解析后传入, 不在此按多空符号事后挑, 避免数据窥探。
-            piv = gr.pivot(index="date", columns="group", values="ret")
-            hi, lo = piv.columns.max(), piv.columns.min()
-            if direction == "short":
-                lr = (piv[lo] - piv[hi]).dropna()
-                long_group = lo
-            else:
-                lr = (piv[hi] - piv[lo]).dropna()
-                long_group = hi
-            if lr.empty:
-                continue
-            nav = _cumulative_curve(lr)
-            nav_end = float(nav.iloc[-1])
-            hold_days = max(len(lr) * bp, 1)
-            ls_ann = nav_end ** (TRADING_DAYS / hold_days) - 1 if nav_end > 0 else -1.0
-            n_per_year = TRADING_DAYS / bp
-            ls_sharpe = (lr.mean() / lr.std() * np.sqrt(n_per_year)
-                         if lr.std() > 0 else np.nan)
-            ls_maxdd = float((nav / nav.cummax() - 1).min())
-            # 多头组换手(跟随 direction 选的那一端)
-            turnover = np.nan
-            if not gsum.empty and "turnover" in gsum:
-                val = gsum.loc[gsum["group"] == long_group, "turnover"]
-                turnover = float(val.iloc[0]) if len(val) else np.nan
-            rows.append({
-                "holding": int(bp),
-                "ls_ann": ls_ann,
-                "ls_sharpe": ls_sharpe,
-                "ls_maxdd": ls_maxdd,
-                "turnover": turnover,
-            })
-        except Exception:
-            continue
-    return pd.DataFrame(rows)
-
-
 def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
                      ic_method="rank", base_period=None,
                      exclude_suspended=True, exclude_st=True, exclude_limit=True,
                      winsorize=True, standardize=True, direction=None,
                      decay_lags=tuple(range(1, 21)),
-                     holding_periods=(1, 2, 3, 5, 10, 20),
                      with_horizon=True):
     """
     SQL-first 主入口。把用户因子 SQL 下推 DuckDB 算 IC/分组/覆盖度,
@@ -718,12 +660,13 @@ def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
 
     # 5. 因子有效时限(可选, 每日重跑要背这块耗时, 故可关)
     decay_curve = pd.DataFrame()
-    holding_scan = pd.DataFrame()
     if with_horizon:
-        # 5a. 滞后 IC 衰减曲线(SQL) -> 汇总 -> 派生半衰期等标量
+        # 滞后 IC 衰减曲线(SQL) -> 汇总 -> 派生半衰期等标量。
+        # 衰减曲线只看形状/拐点, 固定用 Pearson(normal): 与 Spearman 衰减形态几乎一致,
+        # 但省掉每个 lag 两个 RANK() 排序窗口(20-lag 下 rank 约 43s, normal 约 8s)。
         decay_lags = list(decay_lags)
         lag_sql = es.build_lagged_ic_sql(
-            user_sql, decay_lags, ic_method, exclude_suspended, exclude_st,
+            user_sql, decay_lags, "normal", exclude_suspended, exclude_st,
             exclude_limit, winsorize, standardize)
         ic_lag_df = db.query(lag_sql).df()
         decay_curve = build_decay_curve(ic_lag_df, decay_lags)
@@ -734,12 +677,6 @@ def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
         metrics["info80_lag"] = horizon.get("info80_lag", np.nan)
         metrics["decay_tau"] = horizon.get("tau", np.nan)
 
-        # 5b. 多空持有期扫描(用主流程已定的 direction, 不事后挑方向)
-        holding_scan = scan_holding_periods(
-            db, user_sql, holding_periods, n_groups, ic_method,
-            exclude_suspended, exclude_st, exclude_limit, winsorize, standardize,
-            direction=metrics.get("direction"))
-
     return {
         "ic_series": ic_series,
         "groups": group_returns,
@@ -748,9 +685,7 @@ def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
         "yearly": yearly,
         "metrics": metrics,
         "decay_curve": decay_curve,
-        "holding_scan": holding_scan,
         "params": {"periods": periods, "n_groups": n_groups,
                    "ic_method": ic_method, "base_period": base_period,
-                   "decay_lags": list(decay_lags),
-                   "holding_periods": list(holding_periods)},
+                   "decay_lags": list(decay_lags)},
     }

@@ -164,9 +164,10 @@ def main():
     # 注册实盘任务
     _register_live_jobs(data_path)
 
-    # 注册因子分析任务(默认比模拟交易晚 30 分钟, 确保当天行情已入库)
-    factor_time = args.factor_time or _plus_minutes(args.time, 30)
-    _register_factor_job(data_path, factor_time)
+    # 因子分析不再每日定时全量重跑(开销大)。改为在因子看板逐个手动"更新"。
+    # 如需恢复定时任务, 取消下面两行注释即可(_register_factor_job 函数仍保留)。
+    # factor_time = args.factor_time or _plus_minutes(args.time, 30)
+    # _register_factor_job(data_path, factor_time)
 
     # 加载用户任务
     user_tasks = load_tasks(data_path)

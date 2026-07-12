@@ -173,13 +173,8 @@ function render(d){
       ${kpi('指数时间尺度 τ', m.decay_tau==null?'—':(+m.decay_tau).toFixed(1)+' 天')}
     </div>
 
-    <div class="grid2">
-      <div class="card"><div class="sec-title">IC 衰减曲线（每个持有日当天的边际 IC，实心＝显著 |t|≥2）</div>
-        <div class="chart-box"><canvas id="decayChart"></canvas></div>
-      </div>
-      <div class="card"><div class="sec-title">多空绩效随持有期变化（验证最优调仓周期）</div>
-        <div class="chart-box"><canvas id="holdingChart"></canvas></div>
-      </div>
+    <div class="card" style="margin-bottom:16px"><div class="sec-title">IC 衰减曲线（每个持有日当天的边际 IC，实心＝显著 |t|≥2）</div>
+      <div class="chart-box"><canvas id="decayChart"></canvas></div>
     </div>`;
 
   drawCharts(d, bp);
@@ -264,26 +259,6 @@ function drawCharts(d, bp){
     });
   }
 
-  // 多空绩效随持有期变化: 柱=多空年化(左轴), 线=多空夏普(右轴)
-  const hs = (d.holding_scan||[]).slice().sort((a,b)=>a.holding-b.holding);
-  if(hs.length){
-    new Chart(document.getElementById('holdingChart'),{
-      data:{labels:hs.map(r=>r.holding+'天'),
-        datasets:[
-          {type:'bar',label:'多空年化',yAxisID:'y',
-            data:hs.map(r=>r.ls_ann==null?null:+(r.ls_ann*100).toFixed(2)),
-            backgroundColor:hs.map(r=>(r.ls_ann||0)>=0?'rgba(38,194,129,.65)':'rgba(255,93,93,.65)'),borderRadius:3},
-          {type:'line',label:'多空夏普',yAxisID:'y1',
-            data:hs.map(r=>r.ls_sharpe==null?null:+(r.ls_sharpe).toFixed(2)),
-            borderColor:'#ffb454',backgroundColor:'#ffb454',borderWidth:2,pointRadius:3,tension:.2}
-        ]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:LEGEND,
-        tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.yAxisID==='y'?c.parsed.y+'%':c.parsed.y)}}},
-        scales:{x:{grid:GRID,ticks:TICK},
-          y:{position:'left',grid:GRID,ticks:{...TICK,callback:v=>v+'%'},title:{display:true,text:'年化',color:'#8a94a6',font:{size:10}}},
-          y1:{position:'right',grid:{drawOnChartArea:false},ticks:TICK,title:{display:true,text:'夏普',color:'#8a94a6',font:{size:10}}}}}
-    });
-  }
 }
 
 load();
