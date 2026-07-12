@@ -522,10 +522,163 @@ def groups_from_detail(detail, base_period, n_groups):
     return gr, summary, ls_series
 
 
+# ==============================================================================
+# 因子有效时限: 滞后 IC 衰减曲线 + 派生时限标量 + 多空持有期扫描
+# ==============================================================================
+def build_decay_curve(ic_lag_df, lags):
+    """
+    把逐日滞后 IC(ic_lag_{k}) 汇总成"每个 lag 一行"的衰减曲线。
+    输入 ic_lag_df: build_lagged_ic_sql 的结果, 列 date/n/ic_lag_1.../ic_lag_K。
+    输出 DataFrame[lag, ic_mean, ic_std, t_stat, ic_ir, n_days]。
+    t_stat 判断该 lag 的边际 IC 是否显著异于 0。
+    """
+    rows = []
+    for k in lags:
+        col = f"ic_lag_{k}"
+        if col not in ic_lag_df.columns:
+            continue
+        s = ic_lag_df[col].dropna()
+        if len(s) == 0:
+            continue
+        mean, std, nobs = float(s.mean()), float(s.std()), int(len(s))
+        t_stat = mean / (std / np.sqrt(nobs)) if std > 0 else np.nan
+        rows.append({
+            "lag": int(k),
+            "ic_mean": mean,
+            "ic_std": std,
+            "t_stat": t_stat,
+            "ic_ir": mean / std if std > 0 else np.nan,
+            "n_days": nobs,
+        })
+    return pd.DataFrame(rows)
+
+
+def derive_horizon(curve, sig_t=2.0):
+    """
+    从衰减曲线推出"有效时限"标量。曲线以 lag=1 的 IC 定符号(因子主方向),
+    统一乘符号后按同向强度衰减来算, 负向因子(反转类)也能正确处理。
+
+    返回 dict:
+        ic_lag1       lag1 边际 IC(带原符号)
+        half_life     半衰期: 同向 IC 首次跌破 ic0/2 的 lag(线性插值)
+        last_sig_lag  显著临界: 同向 t 值最后一次 >= sig_t 的 lag(此后不再显著)
+        info80_lag    信息80%: 前 k 个 lag 累计同向正 IC 占比达 80% 的 k
+        tau           指数拟合特征时间尺度(天), 拟合失败为 nan
+    """
+    if curve is None or curve.empty:
+        return {}
+    curve = curve.sort_values("lag").reset_index(drop=True)
+    sign = np.sign(curve.iloc[0]["ic_mean"]) or 1.0
+    ic = (curve["ic_mean"] * sign).values      # 主方向强度, 起点为正
+    lag = curve["lag"].values.astype(float)
+    tstat = (curve["t_stat"] * sign).values
+    ic0 = ic[0]
+
+    # 半衰期(线性插值到小数)
+    half = np.nan
+    target = ic0 / 2.0
+    for i in range(1, len(ic)):
+        if ic[i] <= target:
+            x0, x1, l0, l1 = ic[i - 1], ic[i], lag[i - 1], lag[i]
+            half = (l0 + (target - x0) / (x1 - x0) * (l1 - l0)
+                    if x1 != x0 else l1)
+            break
+
+    # 显著临界 lag
+    sig_lags = lag[tstat >= sig_t]
+    last_sig = int(sig_lags.max()) if len(sig_lags) else 0
+
+    # 信息 80% 耗尽
+    pos = np.clip(ic, 0, None)
+    total = pos.sum()
+    info80 = np.nan
+    if total > 0:
+        cum = np.cumsum(pos) / total
+        idx = int(np.argmax(cum >= 0.8))
+        if cum[idx] >= 0.8:
+            info80 = int(lag[idx])
+
+    # 指数拟合 τ: ln(IC) = ln(ic0) - lag/τ, 只用同向为正的点
+    tau = np.nan
+    fit_mask = ic > 0
+    if fit_mask.sum() >= 3:
+        slope = np.polyfit(lag[fit_mask], np.log(ic[fit_mask]), 1)[0]
+        if slope < 0:
+            tau = -1.0 / slope
+
+    return {
+        "ic_lag1": float(ic0 * sign),
+        "half_life": float(half) if half == half else np.nan,
+        "last_sig_lag": last_sig,
+        "info80_lag": int(info80) if info80 == info80 else np.nan,
+        "tau": float(tau) if tau == tau else np.nan,
+    }
+
+
+def scan_holding_periods(db, user_sql, holding_periods, n_groups=10,
+                         ic_method="rank", exclude_suspended=True,
+                         exclude_st=True, exclude_limit=True,
+                         winsorize=True, standardize=True, direction=None):
+    """
+    多空绩效随持有期变化: 对每个持有期各跑一次分组多空, 看多空年化/夏普/换手怎么变。
+    峰值持有期 == 最优调仓周期, 应与 IC 半衰期互相印证。
+    复用 build_groups_sql + groups_from_detail + summarize, 口径与主流程一致。
+    返回 DataFrame[holding, ls_ann, ls_sharpe, ls_maxdd, turnover]。
+    """
+    from . import engine_sql as es
+    rows = []
+    for bp in holding_periods:
+        try:
+            g_sql = es.build_groups_sql(user_sql, bp, n_groups, exclude_suspended,
+                                        exclude_st, exclude_limit, winsorize, standardize)
+            detail = db.query(g_sql).df()
+            gr, gsum, _ = groups_from_detail(detail, bp, n_groups)
+            if gr.empty:
+                continue
+            # 按 direction 重构多空(做多正确一端), 与 summarize 口径一致。
+            # direction 由主流程解析后传入, 不在此按多空符号事后挑, 避免数据窥探。
+            piv = gr.pivot(index="date", columns="group", values="ret")
+            hi, lo = piv.columns.max(), piv.columns.min()
+            if direction == "short":
+                lr = (piv[lo] - piv[hi]).dropna()
+                long_group = lo
+            else:
+                lr = (piv[hi] - piv[lo]).dropna()
+                long_group = hi
+            if lr.empty:
+                continue
+            nav = _cumulative_curve(lr)
+            nav_end = float(nav.iloc[-1])
+            hold_days = max(len(lr) * bp, 1)
+            ls_ann = nav_end ** (TRADING_DAYS / hold_days) - 1 if nav_end > 0 else -1.0
+            n_per_year = TRADING_DAYS / bp
+            ls_sharpe = (lr.mean() / lr.std() * np.sqrt(n_per_year)
+                         if lr.std() > 0 else np.nan)
+            ls_maxdd = float((nav / nav.cummax() - 1).min())
+            # 多头组换手(跟随 direction 选的那一端)
+            turnover = np.nan
+            if not gsum.empty and "turnover" in gsum:
+                val = gsum.loc[gsum["group"] == long_group, "turnover"]
+                turnover = float(val.iloc[0]) if len(val) else np.nan
+            rows.append({
+                "holding": int(bp),
+                "ls_ann": ls_ann,
+                "ls_sharpe": ls_sharpe,
+                "ls_maxdd": ls_maxdd,
+                "turnover": turnover,
+            })
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
 def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
                      ic_method="rank", base_period=None,
                      exclude_suspended=True, exclude_st=True, exclude_limit=True,
-                     winsorize=True, standardize=True, direction=None):
+                     winsorize=True, standardize=True, direction=None,
+                     decay_lags=tuple(range(1, 21)),
+                     holding_periods=(1, 2, 3, 5, 10, 20),
+                     with_horizon=True):
     """
     SQL-first 主入口。把用户因子 SQL 下推 DuckDB 算 IC/分组/覆盖度,
     pandas 只收尾算换手和汇总。返回与 analyze() 完全一致的六键 dict。
@@ -563,6 +716,30 @@ def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
     cov = db.query(cov_sql).df()
     metrics["coverage"] = float(cov["coverage"].mean()) if len(cov) else np.nan
 
+    # 5. 因子有效时限(可选, 每日重跑要背这块耗时, 故可关)
+    decay_curve = pd.DataFrame()
+    holding_scan = pd.DataFrame()
+    if with_horizon:
+        # 5a. 滞后 IC 衰减曲线(SQL) -> 汇总 -> 派生半衰期等标量
+        decay_lags = list(decay_lags)
+        lag_sql = es.build_lagged_ic_sql(
+            user_sql, decay_lags, ic_method, exclude_suspended, exclude_st,
+            exclude_limit, winsorize, standardize)
+        ic_lag_df = db.query(lag_sql).df()
+        decay_curve = build_decay_curve(ic_lag_df, decay_lags)
+        horizon = derive_horizon(decay_curve)
+        # 时限标量并入 metrics(前端 KPI 直接读)
+        metrics["half_life"] = horizon.get("half_life", np.nan)
+        metrics["last_sig_lag"] = horizon.get("last_sig_lag", np.nan)
+        metrics["info80_lag"] = horizon.get("info80_lag", np.nan)
+        metrics["decay_tau"] = horizon.get("tau", np.nan)
+
+        # 5b. 多空持有期扫描(用主流程已定的 direction, 不事后挑方向)
+        holding_scan = scan_holding_periods(
+            db, user_sql, holding_periods, n_groups, ic_method,
+            exclude_suspended, exclude_st, exclude_limit, winsorize, standardize,
+            direction=metrics.get("direction"))
+
     return {
         "ic_series": ic_series,
         "groups": group_returns,
@@ -570,6 +747,10 @@ def analyze_from_sql(db, user_sql, periods=(1, 5, 10, 20), n_groups=10,
         "ls_series": ls_series,
         "yearly": yearly,
         "metrics": metrics,
+        "decay_curve": decay_curve,
+        "holding_scan": holding_scan,
         "params": {"periods": periods, "n_groups": n_groups,
-                   "ic_method": ic_method, "base_period": base_period},
+                   "ic_method": ic_method, "base_period": base_period,
+                   "decay_lags": list(decay_lags),
+                   "holding_periods": list(holding_periods)},
     }

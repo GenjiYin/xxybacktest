@@ -33,6 +33,9 @@ class FactorResult:
         self.ls_series = output["ls_series"]
         self.yearly = output["yearly"]
         self.metrics = output["metrics"]
+        # 因子有效时限(可能为空 DataFrame, 当 with_horizon=False 时)
+        self.decay_curve = output.get("decay_curve", pd.DataFrame())
+        self.holding_scan = output.get("holding_scan", pd.DataFrame())
         self.params = output.get("params", {})
 
     # ------------------------------------------------------------------
@@ -213,6 +216,8 @@ class FactorResult:
             "group_summary": _df(self.group_summary),
             "ls_series": _df(self.ls_series),
             "yearly": _df(self.yearly),
+            "decay_curve": _df(self.decay_curve),
+            "holding_scan": _df(self.holding_scan),
             "params": self.params,
         }
 

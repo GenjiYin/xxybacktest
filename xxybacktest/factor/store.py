@@ -66,6 +66,8 @@ def save_factor_result(factor_id, result_dict, meta=None, data_path="./data"):
         ("groups", "groups.parquet"),
         ("group_summary", "group_summary.parquet"),
         ("ls_series", "ls_series.parquet"),
+        ("decay_curve", "decay_curve.parquet"),
+        ("holding_scan", "holding_scan.parquet"),
     ]:
         records = result_dict.get(key, [])
         df = pd.DataFrame(records)
@@ -166,6 +168,8 @@ def load_detail(factor_id, data_path="./data"):
         "groups": _recs("groups.parquet"),
         "group_summary": _recs("group_summary.parquet"),
         "ls_series": _recs("ls_series.parquet"),
+        "decay_curve": _recs("decay_curve.parquet"),
+        "holding_scan": _recs("holding_scan.parquet"),
     }
 
 

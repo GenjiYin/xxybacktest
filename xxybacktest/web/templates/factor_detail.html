@@ -159,6 +159,27 @@ function render(d){
 
     <div class="card" style="margin-bottom:16px"><div class="sec-title">多空组合净值曲线（最高分位 − 最低分位）</div>
       <div class="chart-box"><canvas id="lsChart"></canvas></div>
+    </div>
+
+    <div class="detail-head" style="margin-top:26px;margin-bottom:2px">
+      <div style="font-size:16px;font-weight:700">因子有效时限</div>
+    </div>
+    <div class="sub" style="margin-bottom:12px">信号算出后还能有效预测多久，多久失效。半衰期＝边际 IC 衰减到峰值一半所需的持有天数。</div>
+
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      ${kpi('IC 半衰期', m.half_life==null?'—':(+m.half_life).toFixed(1)+' 天')}
+      ${kpi('显著临界', m.last_sig_lag==null?'—':'第 '+m.last_sig_lag+' 天')}
+      ${kpi('信息80%耗尽', m.info80_lag==null?'—':'前 '+m.info80_lag+' 天')}
+      ${kpi('指数时间尺度 τ', m.decay_tau==null?'—':(+m.decay_tau).toFixed(1)+' 天')}
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="sec-title">IC 衰减曲线（每个持有日当天的边际 IC，实心＝显著 |t|≥2）</div>
+        <div class="chart-box"><canvas id="decayChart"></canvas></div>
+      </div>
+      <div class="card"><div class="sec-title">多空绩效随持有期变化（验证最优调仓周期）</div>
+        <div class="chart-box"><canvas id="holdingChart"></canvas></div>
+      </div>
     </div>`;
 
   drawCharts(d, bp);
@@ -226,6 +247,43 @@ function drawCharts(d, bp){
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
       scales:{x:{grid:GRID,ticks:{...TICK,maxTicksLimit:8}},y:{grid:GRID,ticks:TICK}}}
   });
+
+  // IC 衰减曲线: decay_curve[lag, ic_mean, t_stat]。柱状, 显著(|t|>=2)用亮色实心, 不显著半透明
+  const decay = (d.decay_curve||[]).slice().sort((a,b)=>a.lag-b.lag);
+  if(decay.length){
+    const barColor = decay.map(r=>Math.abs(r.t_stat)>=2 ? 'rgba(76,141,255,.95)' : 'rgba(76,141,255,.28)');
+    new Chart(document.getElementById('decayChart'),{
+      type:'bar',
+      data:{labels:decay.map(r=>r.lag),
+        datasets:[{data:decay.map(r=>+(r.ic_mean).toFixed(4)),backgroundColor:barColor,borderRadius:2,barPercentage:.9,categoryPercentage:.95}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},
+        tooltip:{callbacks:{title:c=>'持有第 '+c[0].label+' 天',
+          label:c=>{const r=decay[c.dataIndex];return 'IC '+r.ic_mean.toFixed(4)+'  t '+(r.t_stat==null?'—':r.t_stat.toFixed(2));}}}},
+        scales:{x:{grid:GRID,ticks:TICK,title:{display:true,text:'持有天数 (lag)',color:'#8a94a6',font:{size:10}}},
+          y:{grid:GRID,ticks:TICK}}}
+    });
+  }
+
+  // 多空绩效随持有期变化: 柱=多空年化(左轴), 线=多空夏普(右轴)
+  const hs = (d.holding_scan||[]).slice().sort((a,b)=>a.holding-b.holding);
+  if(hs.length){
+    new Chart(document.getElementById('holdingChart'),{
+      data:{labels:hs.map(r=>r.holding+'天'),
+        datasets:[
+          {type:'bar',label:'多空年化',yAxisID:'y',
+            data:hs.map(r=>r.ls_ann==null?null:+(r.ls_ann*100).toFixed(2)),
+            backgroundColor:hs.map(r=>(r.ls_ann||0)>=0?'rgba(38,194,129,.65)':'rgba(255,93,93,.65)'),borderRadius:3},
+          {type:'line',label:'多空夏普',yAxisID:'y1',
+            data:hs.map(r=>r.ls_sharpe==null?null:+(r.ls_sharpe).toFixed(2)),
+            borderColor:'#ffb454',backgroundColor:'#ffb454',borderWidth:2,pointRadius:3,tension:.2}
+        ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:LEGEND,
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.yAxisID==='y'?c.parsed.y+'%':c.parsed.y)}}},
+        scales:{x:{grid:GRID,ticks:TICK},
+          y:{position:'left',grid:GRID,ticks:{...TICK,callback:v=>v+'%'},title:{display:true,text:'年化',color:'#8a94a6',font:{size:10}}},
+          y1:{position:'right',grid:{drawOnChartArea:false},ticks:TICK,title:{display:true,text:'夏普',color:'#8a94a6',font:{size:10}}}}}
+    });
+  }
 }
 
 load();

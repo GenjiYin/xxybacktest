@@ -191,6 +191,101 @@ SELECT date, grp, instrument, ret FROM grouped ORDER BY date, grp"""
     return final
 
 
+def build_lagged_ic_sql(user_sql, lags, ic_method="rank",
+                        exclude_suspended=True, exclude_st=True, exclude_limit=True,
+                        winsorize=True, standardize=True, winsor_q=0.01):
+    """
+    生成"滞后 IC 衰减曲线"的 SQL。返回列: date, n, ic_lag_{k}...
+
+    与 build_ic_sql 的区别只在收益列口径:
+      build_ic_sql 用**累积**收益 fwd_ret_N = adj_open(T+1+N)/adj_open(T+1)-1,
+      衡量"持有 N 天的总预测力"—— 只要信号不反转就一直往上爬, 看不出衰减拐点。
+      这里用**边际单日**收益 r_lag_k = adj_open(T+1+k)/adj_open(T+k)-1,
+      即"第 k 个持有日当天"的收益。IC_lag_k 随 k 衰减到 0, 才能定出有效时限。
+      口径严格自洽: lag=1..N 的 (1+r_lag) 连乘 == build_ic_sql 的累积 fwd_ret_N。
+      (T+1 是买入日, 故 lag=1 是买入当天/持有第1天的收益。)
+
+    JOIN / 过滤 / winsor / zscore 全部复用与 _base_cte 相同的结构和口径。
+    """
+    where = _tradable_where(exclude_suspended, exclude_st, exclude_limit)
+
+    lag_selects = []
+    for k in lags:
+        lag_selects.append(
+            f"        LEAD(d.open * d.adjust_factor, {1 + k}) OVER w "
+            f"/ NULLIF(LEAD(d.open * d.adjust_factor, {k}) OVER w, 0) - 1 "
+            f"AS r_lag_{k}"
+        )
+    lag_sql = ",\n".join(lag_selects)
+    lag_cols = [f"r_lag_{k}" for k in lags]
+    lag_col_list = ", ".join(lag_cols)
+
+    if winsorize:
+        winsor_val = (
+            f"LEAST(GREATEST(a.value, "
+            f"quantile_cont(a.value, {winsor_q}) OVER (PARTITION BY a.date)), "
+            f"quantile_cont(a.value, {1 - winsor_q}) OVER (PARTITION BY a.date))"
+        )
+    else:
+        winsor_val = "a.value"
+
+    if standardize:
+        value_final = (
+            "(w.value - avg(w.value) OVER (PARTITION BY w.date)) / "
+            "NULLIF(stddev_samp(w.value) OVER (PARTITION BY w.date), 0)"
+        )
+    else:
+        value_final = "w.value"
+
+    cte = f"""
+WITH uf AS (
+{user_sql}
+),
+aligned AS (
+    SELECT
+        uf.date, uf.instrument, uf.value,
+{lag_sql}
+    FROM uf
+    JOIN daily_bar d
+      ON uf.instrument = d.instrument AND uf.date = d.date
+    JOIN stock_status s
+      ON uf.instrument = s.instrument AND uf.date = s.date
+    WHERE uf.value IS NOT NULL{where}
+    WINDOW w AS (PARTITION BY uf.instrument ORDER BY d.date)
+),
+winsor AS (
+    SELECT a.date, a.instrument, {winsor_val} AS value, {lag_col_list}
+    FROM aligned a
+),
+prep AS (
+    SELECT w.date, w.instrument, {value_final} AS value, {lag_col_list}
+    FROM winsor w
+)"""
+
+    if ic_method == "rank":
+        rank_selects = ["date", "value"]
+        for k in lags:
+            rank_selects.append(
+                f"RANK() OVER (PARTITION BY date ORDER BY r_lag_{k}) AS rr_{k}")
+            rank_selects.append(
+                f"CASE WHEN r_lag_{k} IS NOT NULL "
+                f"THEN RANK() OVER (PARTITION BY date ORDER BY value) END AS rv_{k}")
+        ranked = "SELECT " + ", ".join(rank_selects) + " FROM prep"
+        ic_selects = ["date", "count(*) AS n"]
+        for k in lags:
+            ic_selects.append(f"corr(rv_{k}, rr_{k}) AS ic_lag_{k}")
+        return (f"{cte},\nranked AS (\n{ranked}\n)\n"
+                f"SELECT {', '.join(ic_selects)} FROM ranked "
+                f"GROUP BY date ORDER BY date")
+    else:
+        ic_selects = ["date", "count(*) AS n"]
+        for k in lags:
+            ic_selects.append(f"corr(value, r_lag_{k}) AS ic_lag_{k}")
+        return (f"{cte}\n"
+                f"SELECT {', '.join(ic_selects)} FROM prep "
+                f"GROUP BY date ORDER BY date")
+
+
 def build_coverage_sql(user_sql, exclude_suspended=True, exclude_st=True,
                        exclude_limit=True):
     """
