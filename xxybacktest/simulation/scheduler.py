@@ -84,10 +84,48 @@ def get_scheduler() -> BackgroundScheduler:
     return _scheduler
 
 
+def _reset_stale_running_status(data_path: str):
+    """
+    进程重启时清理遗留的 "running" 状态文件。
+
+    .status 文件由任务执行完成时改写为 success/failed/error，如果进程被
+    强制杀死（如内存溢出、断电、重启），文件会永久停留在 "running"，导致
+    重启后 is_job_running() 误判任务仍在执行，手动触发被无端拒绝。
+
+    进程重启后必然是一个全新的 BackgroundScheduler 实例，此刻不可能有任何
+    任务真的在跑，因此可以安全地把所有 "running" 状态重置为 "interrupted"。
+    只在 start_scheduler() 第一次启动时调用一次。
+    """
+    log_dir = _log_dir(data_path)
+    try:
+        filenames = os.listdir(log_dir)
+    except Exception:
+        return
+    for filename in filenames:
+        if not filename.endswith(".status"):
+            continue
+        path = os.path.join(log_dir, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        if data.get("status") != "running":
+            continue
+        data["status"] = "interrupted"
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            print(f"[scheduler] 检测到遗留的 running 状态，已重置: {filename}")
+        except Exception:
+            pass
+
+
 def start_scheduler(data_path: str):
     """启动调度器，xxy-sim 启动时调用一次"""
     scheduler = get_scheduler()
     if not scheduler.running:
+        _reset_stale_running_status(data_path)
         scheduler.start()
         print("[scheduler] APScheduler 已启动")
 
