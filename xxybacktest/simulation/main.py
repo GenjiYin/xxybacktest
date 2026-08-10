@@ -6,7 +6,9 @@
 
 import argparse
 import os
+import subprocess
 import sys
+import time
 
 def _parse_args():
     parser = argparse.ArgumentParser(description="模拟交易服务")
@@ -138,6 +140,105 @@ def _register_factor_job(data_path, time_str):
     print(f"[内置任务] 因子分析 已注册，触发时间: {time_str} (cron: {cron})")
 
 
+# ---------- 单实例保护（移植自一人公司 app.py，已端到端验证）----------
+# Windows 的 SO_REUSEADDR 默认允许两个进程同时 bind 同一端口，仅靠端口检测无法
+# 挡住「同时启动」的竞态双开，故额外用文件锁做权威判定；端口检测负责处理
+# 「先后启动」时把占用端口的旧实例（可能是旧代码）结束掉再接管。
+_INSTANCE_LOCK_FD = None
+
+
+def _pids_listening_on_port(port):
+    """返回当前正 LISTEN 在 port 上的进程 PID 列表（跨平台尽力而为）。"""
+    pids = []
+    if sys.platform.startswith("win"):
+        try:
+            # 中文 Windows 下 netstat 输出为 OEM 编码，用 oem + errors 避免解码异常被静默吞掉
+            out = subprocess.check_output("netstat -ano", shell=True,
+                                          encoding="oem", errors="replace",
+                                          stderr=subprocess.DEVNULL)
+            for line in out.splitlines():
+                cols = line.split()
+                # TCP  127.0.0.1:5000  0.0.0.0:0  LISTENING  PID
+                if (len(cols) >= 5 and cols[0].startswith("TCP")
+                        and cols[3] == "LISTENING" and cols[1].endswith(f":{port}")):
+                    pids.append(cols[4])
+        except Exception:
+            pass
+    else:
+        try:
+            out = subprocess.check_output(["lsof", "-ti", f"tcp:{port}"],
+                                          text=True, stderr=subprocess.DEVNULL)
+            pids = [p for p in out.split() if p]
+        except Exception:
+            pass
+    # 去重，保持顺序
+    return list(dict.fromkeys(pids))
+
+
+def _acquire_lock(lock_dir):
+    """尝试获取单实例文件锁。成功返回 True 并持有锁（进程退出自动释放）；失败返回 False。"""
+    global _INSTANCE_LOCK_FD
+    if _INSTANCE_LOCK_FD is not None:
+        return True  # 本进程已持有
+    try:
+        # 锁目录可能尚不存在（例如首次用新建的 --data 路径启动），先确保可写
+        os.makedirs(lock_dir, exist_ok=True)
+    except OSError:
+        return False
+    lock_path = os.path.join(lock_dir, ".xxy-sim.lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+    except OSError:
+        return False
+    if sys.platform.startswith("win"):
+        import msvcrt
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            os.close(fd)
+            return False
+    else:
+        import fcntl
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return False
+    _INSTANCE_LOCK_FD = fd
+    return True
+
+
+def ensure_single_instance(port, data_path):
+    """保证全局只有一个 xxy-sim 实例在跑（跨平台，零依赖）。
+
+    两步：
+    1) 端口检测：把占用端口的旧实例结束掉，处理「先后启动」；
+    2) 文件锁：挡住「同时启动」的竞态双 bind（Windows 允许同端口双 bind）。
+    """
+    my_pid = os.getpid()
+    for _ in range(12):
+        # 1) 端口检测：结束占用端口的旧实例
+        pids = [p for p in _pids_listening_on_port(port) if int(p) != my_pid]
+        if pids:
+            print(f"[单实例] 端口 {port} 已被占用（旧实例 PID={pids}），正在接管并结束旧实例...")
+            if sys.platform.startswith("win"):
+                for pid in pids:
+                    subprocess.run(f"taskkill /F /PID {pid}", shell=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                for pid in pids:
+                    subprocess.run(["kill", "-9", pid],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)
+            continue  # 端口腾空后再抢锁
+        # 2) 文件锁：抢到才允许继续；抢不到说明并发对手已持锁，循环重试/退出
+        if _acquire_lock(data_path):
+            return
+        time.sleep(0.3)
+    print(f"[单实例] 无法获取单实例锁，端口/锁仍被占用，请手动结束占用进程后再启动。")
+    sys.exit(1)
+
+
 def main():
     args = _parse_args()
 
@@ -152,6 +253,11 @@ def main():
     # 环境变量（runner 等模块可能依赖）
     os.environ["XXY_DATA_PATH"] = data_path
     os.environ["XXY_TRIGGER_TIME"] = args.time
+
+    # 单实例保护：端口只能有一个 xxy-sim 在跑（避免两套 APScheduler 定时任务
+    # 重复执行、共享 data/ 被两个进程抢写）。若旧实例占用端口，自动结束旧实例并接管。
+    port = int(os.environ.get("PORT", "5000"))
+    ensure_single_instance(port, data_path)
 
     # 启动 APScheduler
     from xxybacktest.simulation.scheduler import start_scheduler, add_script_job
@@ -188,4 +294,4 @@ def main():
     # 启动 Flask（主线程，阻塞）
     from xxybacktest.web.app import create_app
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

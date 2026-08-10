@@ -22,6 +22,8 @@ def index():
     """账户列表首页 - 从 xxydb 读取真实数据"""
 
     accounts_raw = list_accounts(data_path=DEFAULT_DATA_PATH)
+    hidden_raw = list_accounts(data_path=DEFAULT_DATA_PATH, include_hidden=True)
+    hidden_raw = [a for a in hidden_raw if not a.get('visible', True)]
 
     accounts = []
     for acc in accounts_raw:
@@ -96,4 +98,18 @@ def index():
         'total_return': sum(a['total_return'] for a in accounts)
     }
 
-    return render_template('dashboard.html', accounts=accounts, stats=stats)
+    # 已隐藏账户：仅取列表展示所需的基础字段，不查净值（避免首页多余耗时）
+    hidden_accounts = [
+        {
+            'account_id': acc['account_id'],
+            'name': acc['name'],
+            'status': acc['status'],
+            'account_type': acc.get('account_type', 'sim'),
+        }
+        for acc in hidden_raw
+    ]
+
+    return render_template(
+        'dashboard.html', accounts=accounts, stats=stats,
+        hidden_accounts=hidden_accounts,
+    )

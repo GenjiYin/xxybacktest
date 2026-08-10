@@ -3,7 +3,7 @@ import os
 from flask import Blueprint, jsonify, request
 import pandas as pd
 
-from xxybacktest.simulation.submitter import list_accounts, pause, resume, delete, update_account
+from xxybacktest.simulation.submitter import list_accounts, pause, resume, hide, show, delete, update_account
 from xxybacktest.simulation.runner import get_account_nav, get_account_positions, get_account_orders
 
 api_bp = Blueprint('api', __name__)
@@ -14,8 +14,13 @@ DEFAULT_DATA_PATH = os.environ.get('XXY_DATA_PATH', './data')
 
 @api_bp.route('/accounts')
 def get_accounts():
-    """获取所有账户列表（JSON）"""
-    accounts_raw = list_accounts(data_path=DEFAULT_DATA_PATH)
+    """获取所有账户列表（JSON）
+
+    query参数:
+        include_hidden: '1'/'true' 时包含已隐藏账户（默认不包含）
+    """
+    include_hidden = request.args.get('include_hidden', '').lower() in ('1', 'true')
+    accounts_raw = list_accounts(data_path=DEFAULT_DATA_PATH, include_hidden=include_hidden)
 
     accounts = []
     for acc in accounts_raw:
@@ -52,6 +57,7 @@ def get_accounts():
             'account_id': account_id,
             'name': acc['name'],
             'status': acc['status'],
+            'visible': acc.get('visible', True),
             'total_return': round(total_return, 4),
             'latest_daily_return': round(latest_daily_return, 4),
             'latest_return_date': latest_return_date,
@@ -149,6 +155,26 @@ def resume_account(account_id):
         return jsonify({'success': True, 'message': '账户已恢复'})
     else:
         return jsonify({'success': False, 'message': '账户不存在或恢复失败'}), 404
+
+
+@api_bp.route('/accounts/<account_id>/hide', methods=['POST'])
+def hide_account(account_id):
+    """隐藏账户（仅影响列表展示，不影响调度）"""
+    success = hide(account_id, data_path=DEFAULT_DATA_PATH)
+    if success:
+        return jsonify({'success': True, 'message': '账户已隐藏'})
+    else:
+        return jsonify({'success': False, 'message': '账户不存在或隐藏失败'}), 404
+
+
+@api_bp.route('/accounts/<account_id>/show', methods=['POST'])
+def show_account(account_id):
+    """取消隐藏账户"""
+    success = show(account_id, data_path=DEFAULT_DATA_PATH)
+    if success:
+        return jsonify({'success': True, 'message': '账户已取消隐藏'})
+    else:
+        return jsonify({'success': False, 'message': '账户不存在或操作失败'}), 404
 
 
 @api_bp.route('/accounts/<account_id>', methods=['DELETE'])

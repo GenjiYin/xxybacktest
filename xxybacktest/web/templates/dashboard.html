@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}账户列表 - 模拟交易系统{% endblock %}
+{% block title %}账户列表{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -284,6 +284,73 @@
         pointer-events: none;
     }
     .account-card.selectable .combo-checkbox { display: block; }
+
+    /* ── 隐藏按钮（卡片右上角，hover 时显现；选择模式下让位给复选框）── */
+    .hide-btn {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(0,0,0,0.04);
+        color: #999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        cursor: pointer;
+        z-index: 2;
+    }
+    .hide-btn svg { width: 14px; height: 14px; }
+    .account-card:hover .hide-btn { opacity: 1; }
+    .hide-btn:hover { background: #fff1f0; color: #ff4d4f; }
+    .account-card.selectable .hide-btn { display: none; }
+
+    /* ── 已隐藏账户入口（不显眼） ── */
+    .hidden-entry {
+        margin-top: 16px;
+        font-size: 13px;
+        color: #b0b0b0;
+    }
+    .hidden-entry summary {
+        cursor: pointer;
+        list-style: none;
+        display: inline-block;
+    }
+    .hidden-entry summary::-webkit-details-marker { display: none; }
+    .hidden-entry summary:hover { color: #888; }
+    .hidden-list {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .hidden-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: #fafafa;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #999;
+    }
+    .hidden-item .hidden-item-name { color: #666; }
+    .hidden-item .hidden-item-name a { color: inherit; text-decoration: none; }
+    .hidden-item .hidden-item-name a:hover { text-decoration: underline; }
+    .hidden-item .show-btn {
+        border: 1px solid #ddd;
+        background: white;
+        color: #667eea;
+        border-radius: 5px;
+        padding: 3px 10px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    .hidden-item .show-btn:hover { background: #f0f2ff; }
     .account-card.selected .combo-checkbox {
         background: #667eea;
         border-color: #667eea;
@@ -645,6 +712,14 @@
         <!-- 右上角复选框（选择模式时显示） -->
         <div class="combo-checkbox"></div>
 
+        <!-- 隐藏按钮（悬浮显现） -->
+        <button class="hide-btn" title="隐藏该账户" onclick="hideAccount(event, '{{ account.account_id }}', '{{ account.name | e }}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+            </svg>
+        </button>
+
         <div class="account-header">
             <div>
                 <div class="account-name">
@@ -696,6 +771,23 @@
     <h3>暂无模拟账户</h3>
     <p>使用 submit() 提交您的第一个策略</p>
 </div>
+{% endif %}
+
+{% if hidden_accounts %}
+<details class="hidden-entry">
+    <summary>已隐藏（{{ hidden_accounts | length }}）</summary>
+    <div class="hidden-list">
+        {% for h in hidden_accounts %}
+        <div class="hidden-item" id="hidden-item-{{ h.account_id }}">
+            <span class="hidden-item-name">
+                <a href="/account/{{ h.account_id }}">{{ h.name }}</a>
+                <span style="color:#ccc;">（{{ h.account_id }}）</span>
+            </span>
+            <button class="show-btn" onclick="showAccount('{{ h.account_id }}')">取消隐藏</button>
+        </div>
+        {% endfor %}
+    </div>
+</details>
 {% endif %}
 
 <!-- ── 底部浮动面板 ── -->
@@ -836,6 +928,31 @@
     }
 
     initMiniCharts();
+
+    // ════════════════════════════════════════════════
+    //  隐藏 / 取消隐藏账户
+    // ════════════════════════════════════════════════
+
+    function hideAccount(event, accountId, accountName) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!confirm(`确定要隐藏「${accountName}」吗？隐藏后仍会正常运行，只是不在列表展示，可随时在下方“已隐藏”入口取消隐藏。`)) return;
+        fetch(`/api/accounts/${accountId}/hide`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) location.reload();
+                else alert(res.message || '隐藏失败');
+            });
+    }
+
+    function showAccount(accountId) {
+        fetch(`/api/accounts/${accountId}/show`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) location.reload();
+                else alert(res.message || '取消隐藏失败');
+            });
+    }
 
     // ════════════════════════════════════════════════
     //  策略组合逻辑

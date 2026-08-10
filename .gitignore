@@ -12,3 +12,9 @@ demo.md
 LIVE_INTEGRATION_PLAN.md
 LIVE_TECH_SPEC.md
 LIVE_TODO.md
+
+# 单实例保护锁文件（运行时生成，进程退出自动释放，可位于 --data 目录下）
+.xxy-sim.lock
+
+# 运行时数据目录（用户数据/账户/回测输出等，不进仓库）
+data/

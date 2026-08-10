@@ -4,6 +4,7 @@
 功能：
     - submit(): 注册策略为模拟交易账户
     - pause()/resume(): 暂停/恢复账户
+    - hide()/show(): 隐藏/取消隐藏账户（仅影响列表展示，不影响调度）
     - delete(): 删除账户
     - list_accounts(): 列出所有账户
     - get_account(): 获取单个账户详情
@@ -33,7 +34,13 @@ _ACCOUNT_COLUMNS = [
     "asset_type", "benchmark", "created_at", "updated_at",
     "account_type", "live_account_id", "qmt_path",
     "trigger_cron", "execution_mode", "rebalance_interval",
+    "visible",
 ]
+
+# 新增列的默认值（补列时使用，而非统一填 None）
+_COLUMN_DEFAULTS = {
+    "visible": True,
+}
 
 
 def _get_accounts_df(db) -> pd.DataFrame:
@@ -43,7 +50,9 @@ def _get_accounts_df(db) -> pd.DataFrame:
         # 兼容旧表：补充缺失列
         for col in _ACCOUNT_COLUMNS:
             if col not in df.columns:
-                df[col] = None
+                df[col] = _COLUMN_DEFAULTS.get(col, None)
+        # 旧数据里 visible 可能是 None（表存在但列是新补的），统一视为可见
+        df["visible"] = df["visible"].apply(lambda v: True if v is None else bool(v))
         return df
     except Exception:
         # 表不存在，返回空 DataFrame
@@ -180,6 +189,7 @@ def submit(
             "trigger_cron": trigger_cron,
             "execution_mode": execution_mode,
             "rebalance_interval": rebalance_interval,
+            "visible": True,
         }
 
         df = pd.concat([df, pd.DataFrame([new_account])], ignore_index=True)
@@ -298,6 +308,67 @@ def resume(account_id: str, data_path: str = "./data") -> bool:
         _save_accounts_df(db, df)
 
         print(f"[模拟交易] 账户已恢复: {account_id}")
+        return True
+    finally:
+        close_db(data_path)
+
+
+def hide(account_id: str, data_path: str = "./data") -> bool:
+    """
+    隐藏指定账户（仅影响列表展示，不影响调度）
+
+    隐藏与 status（running/paused）解耦：账户隐藏后仍按原计划参与每日重跑
+    或实盘调度，只是不在账户列表页展示，详情页仍可通过 URL 直接访问。
+
+    参数:
+        account_id: 账户ID
+        data_path: 数据源路径（默认'./data'）
+
+    返回:
+        bool: 是否成功
+    """
+    db = get_db(data_path)
+    try:
+        df = _get_accounts_df(db)
+
+        mask = df["account_id"] == account_id
+        if not mask.any():
+            return False
+
+        df.loc[mask, "visible"] = False
+        df.loc[mask, "updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _save_accounts_df(db, df)
+
+        print(f"[模拟交易] 账户已隐藏: {account_id}")
+        return True
+    finally:
+        close_db(data_path)
+
+
+def show(account_id: str, data_path: str = "./data") -> bool:
+    """
+    取消隐藏指定账户（恢复在列表展示）
+
+    参数:
+        account_id: 账户ID
+        data_path: 数据源路径（默认'./data'）
+
+    返回:
+        bool: 是否成功
+    """
+    db = get_db(data_path)
+    try:
+        df = _get_accounts_df(db)
+
+        mask = df["account_id"] == account_id
+        if not mask.any():
+            return False
+
+        df.loc[mask, "visible"] = True
+        df.loc[mask, "updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _save_accounts_df(db, df)
+
+        print(f"[模拟交易] 账户已取消隐藏: {account_id}")
         return True
     finally:
         close_db(data_path)
@@ -577,13 +648,20 @@ def update_account(
         close_db(data_path)
 
 
-def list_accounts(status: Optional[str] = None, data_path: str = "./data") -> list:
+def list_accounts(
+    status: Optional[str] = None,
+    data_path: str = "./data",
+    include_hidden: bool = False,
+) -> list:
     """
     列出所有模拟交易账户
 
     参数:
         status: 过滤状态 'running'/'paused'/'stopped'，None表示全部
         data_path: 数据源路径（默认'./data'）
+        include_hidden: 是否包含已隐藏的账户（默认False，即展示层默认过滤隐藏账户；
+                         调度/重跑等内部调用不受影响，因为隐藏与status正交，
+                         隐藏账户的status仍为'running'会被下面的status过滤单独选中）
 
     返回:
         list: 账户信息列表
@@ -595,6 +673,9 @@ def list_accounts(status: Optional[str] = None, data_path: str = "./data") -> li
         if status:
             df = df[df["status"] == status]
 
+        if not include_hidden:
+            df = df[df["visible"] != False]  # noqa: E712（保留 NaN/True 皆视为可见）
+
         # 按创建时间倒序
         df = df.sort_values("created_at", ascending=False)
 
@@ -602,7 +683,7 @@ def list_accounts(status: Optional[str] = None, data_path: str = "./data") -> li
         display_cols = ["account_id", "name", "initial_cash", "start_date",
                         "data_path", "status", "asset_type", "benchmark", "created_at",
                         "account_type", "live_account_id", "qmt_path",
-                        "trigger_cron", "execution_mode", "rebalance_interval"]
+                        "trigger_cron", "execution_mode", "rebalance_interval", "visible"]
         df = df[[c for c in display_cols if c in df.columns]]
 
         return df.to_dict("records")

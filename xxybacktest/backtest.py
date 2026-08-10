@@ -495,8 +495,13 @@ def run_backtest(
     if plot:
         from itables import show
         Performance.plot(context)
-        show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position_table')
-        show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order_table')
+        # maxBytes=0: 关闭 itables 默认的 64KB 下采样。
+        # itables 的下采样实现是"只保留首尾各一半的行, 中间整段丢弃"(见 itables/downsample.py),
+        # 回测跑得越久持仓/订单表越大, 一旦超过默认 64KB 阈值, 显示出来的表格就会出现"中间年份消失,
+        # 直接从开头跳到结尾"的现象(实际数据完整, 只是显示被裁剪)。回测表格本就该看全量历史,
+        # 不应该被静默裁剪, 所以这里显式关闭该限制。
+        show(context.pos, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='position_table', maxBytes=0)
+        show(context.order, buttons=["copyHtml5", "csvHtml5", "excelHtml5"], table_id='order_table', maxBytes=0)
 
 
     # 释放缓存内存

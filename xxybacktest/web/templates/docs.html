@@ -928,6 +928,21 @@ tid = schedule_task(
                 <td>恢复账户</td>
             </tr>
             <tr>
+                <td><code>/api/accounts/&lt;id&gt;/hide</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>隐藏账户（仅影响列表展示，不影响每日重跑/实盘调度）</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts/&lt;id&gt;/show</code></td>
+                <td><span class="endpoint post">POST</span></td>
+                <td>取消隐藏账户</td>
+            </tr>
+            <tr>
+                <td><code>/api/accounts</code></td>
+                <td><span class="endpoint">GET</span></td>
+                <td>可选查询参数 <code>?include_hidden=1</code>，包含已隐藏账户</td>
+            </tr>
+            <tr>
                 <td><code>/api/accounts/&lt;id&gt;</code></td>
                 <td><span class="endpoint delete">DELETE</span></td>
                 <td>删除账户（实盘会同步清理 APScheduler job、live_schedule.json、结果目录）</td>

@@ -106,6 +106,7 @@ def account_detail(account_id):
         'account_id': account_id,
         'name': acc['name'],
         'status': acc['status'],
+        'visible': acc.get('visible', True),
         'created_at': created_at,
         'initial_cash': acc.get('initial_cash', 100000),
         'asset_type': acc.get('asset_type', 'stock'),
