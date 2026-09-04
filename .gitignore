@@ -6,15 +6,26 @@ __pycache__/
 
 # 本地保留、不纳入版本控制的无关文件
 实盘.py
+HANDOFF.md
 实盘评估报告.md
 因子分析系统-建设方案.md
 demo.md
 LIVE_INTEGRATION_PLAN.md
 LIVE_TECH_SPEC.md
 LIVE_TODO.md
+CLAUDE.md
 
 # 单实例保护锁文件（运行时生成，进程退出自动释放，可位于 --data 目录下）
 .xxy-sim.lock
 
-# 运行时数据目录（用户数据/账户/回测输出等，不进仓库）
-data/
+# 运行时数据目录（回测/模拟输出、临时文件，不进仓库）
+# 说明：本仓库 data/ 已内置“全市场 2020 上半年”示例数据（8 张表 + tables_config.json），
+# 已纳入版本控制，clone 下来即可直接跑通；请勿把多 GB 全量数据放进本仓库 data/，
+# 全量数据请放在其他目录并通过 data_path 指向它。
+data/simulation_results/
+data/tmp*.py
+data/*.lock
+
+# 桥接真实配置（含资金账号，由 bridge_client/gen_config.py 生成，禁止提交）
+bridge_client/**/bigqmt_signal_trader_client_config.py
+bridge_client/**/bigqmt_signal_trader_local_config.py

@@ -12,15 +12,63 @@ live/trader.py — QMT 交易通道
 
 import time
 import random
+import os
+import sys
 
-try:
-    from xtquant import xtdata
-    from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
-    from xtquant.xttype import StockAccount
-    import xtquant.xtconstant as xtconstant
-    _XTQUANT_AVAILABLE = True
-except ImportError:
-    _XTQUANT_AVAILABLE = False
+# xtquant 符号在运行时按后端模式解析（见 _resolve_xtquant），不在此处写死
+_XTQUANT_AVAILABLE = False
+
+# 记录已解析的后端，避免同进程重复清缓存重导
+_RESOLVED = {"mode": None, "path": None}
+
+
+def _resolve_xtquant(qmt_mode: str = "miniqmt", bridge_path: str = None) -> None:
+    """按后端模式把 xtquant 系列符号绑定到模块级全局。
+
+    - miniqmt: 不插路径，直接用环境里的真·xtquant（与之前行为完全一致，零改动）。
+    - QMT:     把内置桥接客户端 bridge_client/client/ 插到 sys.path 最前并清缓存，
+               使 import xtquant 抓到替身包（经 ZMQ 连大QMT 服务端）。
+
+    业务代码（check_qmt_login / QMTTrader）只认 XtQuantTrader 这些名字，
+    不关心背后是 miniqmt 还是桥接。本函数只负责"选哪套库"，不涉及任何下单。
+    """
+    global XtQuantTrader, XtQuantTraderCallback, StockAccount, xtdata, xtconstant, _XTQUANT_AVAILABLE
+
+    # QMT 模式默认使用仓库内置的桥接客户端
+    if qmt_mode == "QMT" and bridge_path is None:
+        here = os.path.dirname(os.path.abspath(__file__))      # xxybacktest/xxybacktest/live
+        pkg_root = os.path.dirname(here)                        # xxybacktest/xxybacktest（包目录）
+        repo_root = os.path.dirname(pkg_root)                   # xxybacktest（仓库根）
+        bridge_path = os.path.join(repo_root, "bridge_client", "client")
+
+    # 移除上一轮可能残留的桥接路径，避免跨模式互相遮蔽
+    prev_bp = _RESOLVED.get("path")
+    if prev_bp and prev_bp in sys.path and prev_bp != bridge_path:
+        sys.path.remove(prev_bp)
+
+    # 同模式已解析过则跳过（避免重复清缓存重导带来副作用）
+    if _RESOLVED["mode"] == qmt_mode and _RESOLVED["path"] == bridge_path:
+        return
+
+    # 清掉已缓存的 xtquant（无论真/替身），确保按当前模式重新选择
+    for mod in list(sys.modules):
+        if mod == "xtquant" or mod.startswith("xtquant."):
+            del sys.modules[mod]
+
+    if qmt_mode == "QMT" and bridge_path and bridge_path not in sys.path:
+        sys.path.insert(0, bridge_path)
+
+    try:
+        from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
+        from xtquant.xttype import StockAccount
+        from xtquant import xtdata
+        import xtquant.xtconstant as xtconstant
+        _XTQUANT_AVAILABLE = True
+    except ImportError:
+        _XTQUANT_AVAILABLE = False
+
+    _RESOLVED["mode"] = qmt_mode
+    _RESOLVED["path"] = bridge_path
 
 
 class QMTConnectionError(Exception):
@@ -33,11 +81,17 @@ class QMTOrderError(Exception):
     pass
 
 
-def check_qmt_login(qmt_path: str, account_id: str) -> bool:
+def check_qmt_login(qmt_path: str, account_id: str,
+                   qmt_mode: str = "miniqmt", bridge_path: str = None) -> bool:
     """
     快速检测 QMT 客户端是否已登录（只做一次连接尝试，不重试）。
     返回 True 表示已登录，False 表示未登录或 xtquant 未安装。
+
+    参数:
+        qmt_mode:    "miniqmt"（默认，直连本地 miniQMT）| "QMT"（大QMT 桥接）
+        bridge_path: QMT 模式下替身包目录，默认指向内置 bridge_client/client/
     """
+    _resolve_xtquant(qmt_mode, bridge_path)
     if not _XTQUANT_AVAILABLE:
         return False
 
@@ -94,7 +148,9 @@ class QMTTrader:
     """
 
     def __init__(self, qmt_path: str, account_id: str,
-                 retry: int = 5, interval: int = 3):
+                 retry: int = 5, interval: int = 3,
+                 qmt_mode: str = "miniqmt", bridge_path: str = None):
+        _resolve_xtquant(qmt_mode, bridge_path)
         _require_xtquant()
 
         self.qmt_path = qmt_path
@@ -145,6 +201,14 @@ class QMTTrader:
 
             except Exception as e:
                 last_err = e
+                # 失败的连接也要收口：停掉本轮 trader 的事件线程 + 关传输层，
+                # 否则（尤其桥接模式）会留下赖着不退的后台线程，直到进程退出。
+                try:
+                    if trader is not None:
+                        trader.close()
+                except Exception:
+                    pass
+                trader = None
                 print(f"[QMTTrader] 第 {attempt}/{self._retry} 次连接失败: {e}")
                 if attempt < self._retry:
                     time.sleep(self._interval)
@@ -162,7 +226,12 @@ class QMTTrader:
         """断开连接，释放资源。"""
         if self._trader is not None:
             try:
-                self._trader.stop()
+                # close() 级联收口底层 RPC 传输层（ZMQ 线程 + socket）；
+                # 老版本 shim 只有 stop() 时也兼容。
+                if hasattr(self._trader, "close"):
+                    self._trader.close()
+                else:
+                    self._trader.stop()
             except Exception:
                 pass
             self._trader = None
@@ -239,12 +308,24 @@ class QMTTrader:
         for pos in positions:
             if pos.volume <= 0:
                 continue
+            # 兼容桥接模式：持仓对象可能无 last_price 属性（底层仍有 m_dLastPrice），
+            # 用 getattr 依次兜底 last_price -> m_dLastPrice -> avg_price，避免 AttributeError。
+            last_price = None
+            for _name in ('last_price', 'm_dLastPrice', 'avg_price'):
+                _v = getattr(pos, _name, None)
+                if _v is not None:
+                    last_price = _v
+                    break
+            last_price = float(last_price) if last_price is not None else None
+            mv = getattr(pos, 'market_value', None)
+            if mv is None and last_price is not None:
+                mv = pos.volume * last_price
             result[pos.stock_code] = {
                 'volume':          int(pos.volume),
                 'can_sell_volume': int(pos.can_use_volume),
                 'cost_price':      float(pos.avg_price),
-                'last_price':      float(pos.last_price),
-                'market_value':    float(pos.volume * pos.last_price),
+                'last_price':      last_price,
+                'market_value':    float(mv) if mv is not None else 0.0,
             }
         return result
 

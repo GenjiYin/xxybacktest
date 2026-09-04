@@ -1,0 +1,446 @@
+{
+    "trading_days": {
+        "partition_by": null,
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "market_code"
+        ],
+        "source_folder": "trading_days",
+        "schema": {
+            "date": {
+                "desc": "",
+                "type": "datetime64[ns]"
+            },
+            "market_code": {
+                "desc": "",
+                "type": "str"
+            }
+        }
+    },
+    "daily_bar": {
+        "partition_by": "year",
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "daily_bar",
+        "schema": {
+            "instrument": {
+                "desc": "股票代码（6位）",
+                "type": "str"
+            },
+            "name": {
+                "desc": "证券简称",
+                "type": "str"
+            },
+            "adjust_factor": {
+                "desc": "累积后复权因子",
+                "type": "float64"
+            },
+            "pre_close": {
+                "desc": "昨收盘价(未复权)",
+                "type": "float64"
+            },
+            "open": {
+                "desc": "开盘价(未复权)",
+                "type": "float64"
+            },
+            "close": {
+                "desc": "收盘价(未复权)",
+                "type": "float64"
+            },
+            "high": {
+                "desc": "最高价(未复权)",
+                "type": "float64"
+            },
+            "low": {
+                "desc": "最低价(未复权)",
+                "type": "float64"
+            },
+            "volume": {
+                "desc": "成交量",
+                "type": "int64"
+            },
+            "deal_number": {
+                "desc": "成交笔数",
+                "type": "int32"
+            },
+            "amount": {
+                "desc": "成交金额",
+                "type": "float64"
+            },
+            "change_ratio": {
+                "desc": "涨跌幅",
+                "type": "float64"
+            },
+            "turn": {
+                "desc": "换手率",
+                "type": "float64"
+            },
+            "upper_limit": {
+                "desc": "涨停价",
+                "type": "float64"
+            },
+            "lower_limit": {
+                "desc": "跌停价",
+                "type": "float64"
+            },
+            "date": {
+                "desc": "交易日期",
+                "type": "datetime64[ns]"
+            }
+        }
+    },
+    "stock_status": {
+        "partition_by": "year",
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "stock_status",
+        "schema": {
+            "instrument": {
+                "desc": "股票代码（6位）",
+                "type": "str"
+            },
+            "st_status": {
+                "desc": "st状态（0表示正常，1表示个股st）",
+                "type": "int8"
+            },
+            "suspended": {
+                "desc": "停牌状态（0表示正常，1表示）",
+                "type": "int8"
+            },
+            "price_limit_status": {
+                "desc": "涨跌停状态(1-跌停, 2-非涨跌停, 3-涨停)",
+                "type": "int8"
+            },
+            "exdr": {
+                "desc": "除权除息日",
+                "type": "int8"
+            },
+            "date": {
+                "desc": "日期",
+                "type": "datetime64[ns]"
+            },
+            "is_risk_warning": {
+                "desc": "风险预警状态（0表示正常，1表示个股风险预警）",
+                "type": "int8"
+            }
+        }
+    },
+    "index_bar": {
+        "partition_by": "year",
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "index_bar",
+        "schema": {
+            "date": {
+                "type": "datetime64[ns]",
+                "desc": "日期"
+            },
+            "instrument": {
+                "type": "str",
+                "desc": "指数代码"
+            },
+            "name": {
+                "type": "str",
+                "desc": "指数简称"
+            },
+            "pre_close": {
+                "type": "float64",
+                "desc": "昨收盘价"
+            },
+            "open": {
+                "type": "float64",
+                "desc": "开盘价"
+            },
+            "high": {
+                "type": "float64",
+                "desc": "最高价"
+            },
+            "low": {
+                "type": "float64",
+                "desc": "最低价"
+            },
+            "close": {
+                "type": "float64",
+                "desc": "收盘价"
+            },
+            "volume": {
+                "type": "int64",
+                "desc": "成交量"
+            },
+            "amount": {
+                "type": "float64",
+                "desc": "成交额"
+            },
+            "change": {
+                "type": "float64",
+                "desc": "涨跌"
+            },
+            "change_ratio": {
+                "type": "float64",
+                "desc": "涨跌幅"
+            },
+            "turn": {
+                "type": "float64",
+                "desc": "指数换手率"
+            }
+        }
+    },
+    "daily_fund": {
+        "partition_by": "year",
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "daily_fund",
+        "schema": {
+            "instrument": {
+                "type": "str",
+                "desc": "股票代码（6位）"
+            },
+            "date": {
+                "type": "datetime64[ns]",
+                "desc": "交易日期"
+            },
+            "name": {
+                "type": "str",
+                "desc": "基金简称"
+            },
+            "adjust_factor": {
+                "type": "float64",
+                "desc": "累积后复权因子"
+            },
+            "pre_close": {
+                "type": "float64",
+                "desc": "昨收盘价"
+            },
+            "open": {
+                "type": "float64",
+                "desc": "开盘价"
+            },
+            "high": {
+                "type": "float64",
+                "desc": "最高价"
+            },
+            "low": {
+                "type": "float64",
+                "desc": "最低价"
+            },
+            "close": {
+                "type": "float64",
+                "desc": "收盘价"
+            },
+            "volume": {
+                "type": "int64",
+                "desc": "成交量"
+            },
+            "amount": {
+                "type": "float64",
+                "desc": "成交金额"
+            },
+            "deal_number": {
+                "type": "int32",
+                "desc": "成交笔数"
+            },
+            "change_ratio": {
+                "type": "float64",
+                "desc": "涨跌幅"
+            },
+            "turn": {
+                "type": "float64",
+                "desc": "换手率"
+            },
+            "upper_limit": {
+                "type": "float64",
+                "desc": "涨停价"
+            },
+            "lower_limit": {
+                "type": "float64",
+                "desc": "跌停价"
+            },
+            "iopv": {
+                "type": "float64",
+                "desc": ""
+            }
+        }
+    },
+    "fund_split": {
+        "partition_by": "year",
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "fund_split",
+        "schema": {
+            "name": {
+                "type": "str",
+                "desc": "基金简称"
+            },
+            "date": {
+                "type": "datetime64[ns]",
+                "desc": "拆分折算日"
+            },
+            "split_type": {
+                "type": "str",
+                "desc": "拆分类型"
+            },
+            "split_conversion": {
+                "type": "float64",
+                "desc": "\t拆分折算(每份)"
+            },
+            "fund_type": {
+                "type": "str",
+                "desc": "基金类型"
+            },
+            "instrument": {
+                "type": "str",
+                "desc": "基金代码"
+            }
+        }
+    },
+    "dividend": {
+        "partition_by": null,
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "dividend",
+        "schema": {
+            "instrument": {
+                "desc": "股票代码（6位）",
+                "type": "str"
+            },
+            "report_date": {
+                "desc": "报告期",
+                "type": "datetime64[ns]"
+            },
+            "publish_date": {
+                "desc": "公告日期",
+                "type": "datetime64[ns]"
+            },
+            "bonus_rate": {
+                "desc": "每股送股比例",
+                "type": "float64"
+            },
+            "conversed_rate": {
+                "desc": "每股转增比例",
+                "type": "float64"
+            },
+            "cash_before_tax": {
+                "desc": "每股派现(税前)",
+                "type": "float64"
+            },
+            "cash_after_tax": {
+                "desc": "每股派现(税后)",
+                "type": "float64"
+            },
+            "register_date": {
+                "desc": "股权登记日",
+                "type": "datetime64[ns]"
+            },
+            "ex_date": {
+                "desc": "除权除息日",
+                "type": "datetime64[ns]"
+            },
+            "date": {
+                "desc": "交易日期",
+                "type": "datetime64[ns]"
+            },
+            "name": {
+                "desc": "指数简称",
+                "type": "string"
+            },
+            "pre_close": {
+                "desc": "昨收盘价",
+                "type": "double"
+            },
+            "open": {
+                "desc": "开盘价",
+                "type": "double"
+            },
+            "high": {
+                "desc": "最高价",
+                "type": "double"
+            },
+            "low": {
+                "desc": "最低价",
+                "type": "double"
+            },
+            "close": {
+                "desc": "收盘价",
+                "type": "double"
+            },
+            "volume": {
+                "desc": "成交量",
+                "type": "int64"
+            },
+            "amount": {
+                "desc": "成交额",
+                "type": "double"
+            },
+            "change": {
+                "desc": "涨跌",
+                "type": "double"
+            },
+            "change_ratio": {
+                "desc": "涨跌幅",
+                "type": "double"
+            },
+            "turn": {
+                "desc": "",
+                "type": "double"
+            }
+        }
+    },
+    "fund_dividend": {
+        "partition_by": null,
+        "date_column": "date",
+        "unique_keys": [
+            "date",
+            "instrument"
+        ],
+        "source_folder": "fund_dividend",
+        "schema": {
+            "name": {
+                "type": "str",
+                "desc": "基金简称"
+            },
+            "date": {
+                "type": "datetime64[ns]",
+                "desc": "除息日"
+            },
+            "register_date": {
+                "type": "datetime64[ns]",
+                "desc": "权益登记日"
+            },
+            "cash_dividend": {
+                "type": "float64",
+                "desc": "分红(元/份)"
+            },
+            "dividend_distribution_date": {
+                "type": "datetime64[ns]",
+                "desc": "分红发放日"
+            },
+            "fund_type": {
+                "type": "str",
+                "desc": "基金类型"
+            },
+            "instrument": {
+                "type": "str",
+                "desc": "基金代码"
+            }
+        }
+    }
+}

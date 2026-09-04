@@ -121,24 +121,34 @@ def run_live(account_id: str, data_path: str = "./data") -> dict:
     _update_schedule(account_id, {"running": True, "last_run": today}, account_data_path)
 
     # ------------------------------------------------------------------
-    # 4. 连接 QMT
+    # 4. 连接 QMT（按账户记录里的 qmt_mode 选择后端）
     # ------------------------------------------------------------------
+    qmt_mode = account.get("qmt_mode", "miniqmt")
     qmt_path = account.get("qmt_path", "")
     live_account_id = account.get("live_account_id", "")
-    if not qmt_path or not live_account_id:
+    bridge_path = account.get("bridge_path", "") or None
+
+    if not live_account_id:
         _update_schedule(account_id, {"running": False}, account_data_path)
-        return {"account_id": account_id, "status": "error", "reason": "缺少 QMT 配置"}
+        return {"account_id": account_id, "status": "error", "reason": "缺少 live_account_id"}
+    if qmt_mode == "miniqmt" and not qmt_path:
+        _update_schedule(account_id, {"running": False}, account_data_path)
+        return {"account_id": account_id, "status": "error", "reason": "miniqmt 模式缺少 qmt_path"}
+    if qmt_mode not in ("miniqmt", "QMT"):
+        _update_schedule(account_id, {"running": False}, account_data_path)
+        return {"account_id": account_id, "status": "error",
+                "reason": f"未知 qmt_mode: {qmt_mode}"}
 
     # 预检测 QMT 登录状态，避免未登录时卡在重试循环中
     from .trader import check_qmt_login
-    if not check_qmt_login(qmt_path, live_account_id):
+    if not check_qmt_login(qmt_path, live_account_id, qmt_mode=qmt_mode, bridge_path=bridge_path):
         print("[错误] 没有登录qmt")
         _update_schedule(account_id, {"running": False}, account_data_path)
         raise RuntimeError("没有登录qmt")
 
     trader = None
     try:
-        trader = QMTTrader(qmt_path, live_account_id)
+        trader = QMTTrader(qmt_path, live_account_id, qmt_mode=qmt_mode, bridge_path=bridge_path)
     except QMTConnectionError as e:
         _update_schedule(account_id, {"running": False}, account_data_path)
         return {"account_id": account_id, "status": "error", "reason": f"QMT 连接失败: {e}"}

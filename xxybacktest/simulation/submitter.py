@@ -32,7 +32,7 @@ _ACCOUNT_COLUMNS = [
     "account_id", "name", "initialize_code", "handle_data_code",
     "initial_cash", "start_date", "data_path", "status",
     "asset_type", "benchmark", "created_at", "updated_at",
-    "account_type", "live_account_id", "qmt_path",
+    "account_type", "live_account_id", "qmt_path", "qmt_mode",
     "trigger_cron", "execution_mode", "rebalance_interval",
     "visible",
 ]
@@ -103,6 +103,7 @@ def submit(
     account_type: str = "sim",
     live_account_id: Optional[str] = None,
     qmt_path: Optional[str] = None,
+    qmt_mode: str = "miniqmt",
     trigger_cron: str = "30 9 * * *",
     execution_mode: str = "daily",
     rebalance_interval: int = 1,
@@ -122,7 +123,11 @@ def submit(
         run_now: 是否立即运行回测（默认False，需等待定时任务）
         account_type: 账户类型，'sim'（模拟）或 'live'（实盘）
         live_account_id: 实盘账户的 QMT 资金账号（account_type='live' 时必填）
-        qmt_path: QMT 客户端安装目录（account_type='live' 时必填）
+        qmt_path: QMT 客户端安装目录。account_type='live' 时：
+                  qmt_mode='miniqmt' 必填；qmt_mode='QMT'（桥接）可空，桥接客户端已内置
+        qmt_mode: 实盘后端模式，仅 account_type='live' 生效。
+                  'miniqmt'（默认，本地 miniQMT 直连） | 'QMT'（大QMT 桥接，经内置 bridge_client 连大QMT）
+                  提交后写入该账户记录，run_live 定时跑自动读取——切换后端一次提交、永久跟随该账户
         trigger_cron: 定时触发 cron 表达式（默认 '30 9 * * *'，即每天 9:30）
         execution_mode: 执行模式，'daily'（每日）或 'periodic'（按周期）
         rebalance_interval: 调仓周期天数（execution_mode='periodic' 时生效）
@@ -133,11 +138,16 @@ def submit(
     示例:
         >>> # 模拟账户
         >>> account_id = submit("测试策略", initialize, capital=100000)
-        >>> # 实盘账户
+        >>> # 实盘账户（miniQMT 直连）
         >>> account_id = submit("实盘策略", initialize,
         ...     account_type="live",
         ...     live_account_id="8881686799",
         ...     qmt_path=r"D:\\国金证券QMT交易端\\userdata_mini")
+        >>> # 实盘账户（大QMT 桥接，无需 qmt_path）
+        >>> account_id = submit("实盘策略", initialize,
+        ...     account_type="live",
+        ...     live_account_id="8881686799",
+        ...     qmt_mode="QMT")
     """
     db = get_db(data_path)
     try:
@@ -148,16 +158,23 @@ def submit(
         # 实盘：连接 QMT 读取总资产作为 initial_cash
         # ------------------------------------------------------------------
         if account_type == "live":
-            if not qmt_path or not live_account_id:
-                raise ValueError(
-                    "account_type='live' 时必须提供 qmt_path 和 live_account_id"
-                )
+            if not live_account_id:
+                raise ValueError("account_type='live' 时必须提供 live_account_id")
+            qmt_mode = qmt_mode or "miniqmt"
+            if qmt_mode == "miniqmt":
+                if not qmt_path:
+                    raise ValueError("qmt_mode='miniqmt' 时必须提供 qmt_path")
+            elif qmt_mode == "QMT":
+                # 桥接模式：无需 qmt_path，桥接客户端已内置，加载器会用内置 bridge_client/client
+                pass
+            else:
+                raise ValueError(f"未知 qmt_mode={qmt_mode!r}，应为 'miniqmt' 或 'QMT'")
             from ..live.trader import QMTTrader
-            trader = QMTTrader(qmt_path, live_account_id)
+            trader = QMTTrader(qmt_path, live_account_id, qmt_mode=qmt_mode)
             try:
                 portfolio = trader.get_portfolio()
                 capital = portfolio["total_asset"]
-                print(f"[实盘] 连接 QMT 成功，读取总资产: {capital:,.2f}")
+                print(f"[实盘] 连接 QMT 成功（{qmt_mode}），读取总资产: {capital:,.2f}")
             finally:
                 trader.disconnect()
 
@@ -186,6 +203,7 @@ def submit(
             "account_type": account_type,
             "live_account_id": live_account_id,
             "qmt_path": qmt_path,
+            "qmt_mode": qmt_mode,
             "trigger_cron": trigger_cron,
             "execution_mode": execution_mode,
             "rebalance_interval": rebalance_interval,
@@ -523,6 +541,7 @@ def update_account(
     handle_data_code: str = None,
     trigger_cron: str = None,
     qmt_path: str = None,
+    qmt_mode: str = None,
     live_account_id: str = None,
     execution_mode: str = None,
     rebalance_interval: int = None,
@@ -590,6 +609,8 @@ def update_account(
             updates["trigger_cron"] = trigger_cron
         if qmt_path is not None:
             updates["qmt_path"] = qmt_path
+        if qmt_mode is not None:
+            updates["qmt_mode"] = qmt_mode
         if live_account_id is not None:
             updates["live_account_id"] = live_account_id
         if execution_mode is not None:
